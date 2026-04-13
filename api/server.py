@@ -14,9 +14,11 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from voice_oral_exam import VoiceOralExamSession, oral_sessions, handle_oral_exam_ws
+from oral_exam_engine import OralExamState, OralExaminer
 
 # 添加路径以导入两个模块
 sys.path.append(os.path.expanduser("/home/gsk/thesis_2026-gsk/questions"))
@@ -496,6 +498,70 @@ async def get_evaluation_status(evaluation_id: str):
         response["confidence"] = assessment.get("confidence")
     
     return response
+
+
+# ============ 语音口试API ============
+
+class OralExamStartRequest(BaseModel):
+    original_question: str
+    original_answer: str  # 学生的预习答案（用于考官准备问题）
+    student_id: Optional[str] = None
+    subject: Optional[str] = "general"
+
+@app.post("/api/oral-exam/start")
+async def start_oral_exam(request: OralExamStartRequest):
+    """启动对话式语音口试"""
+    try:
+        eval_id = storage.create({
+            "original_question": request.original_question,
+            "original_answer": request.original_answer,
+            "student_id": request.student_id,
+            "subject": request.subject,
+            "exam_type": "oral_dialogue",  # 标记为对话式口试
+            "status": "oral_exam_ready"
+        })
+        
+        # 创建口试状态
+        state = OralExamState(
+            original_question=request.original_question,
+            original_answer=request.original_answer,
+            subject=request.subject
+        )
+        
+        # 创建会话
+        session = VoiceOralExamSession(eval_id, state)
+        oral_sessions[eval_id] = session
+        
+        return {
+            "evaluation_id": eval_id,
+            "status": "ready",
+            "websocket_url": f"ws://localhost:8000/ws/oral-exam/{eval_id}",
+            "instructions": {
+                "start_command": "发送 {'type': 'start_exam'} 开始",
+                "supported_commands": ["请重复", "解释一下", "给点提示", "下一题", "我答完了"],
+                "format": "WebSocket JSON + 二进制音频"
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.websocket("/ws/oral-exam/{evaluation_id}")
+async def oral_exam_websocket(websocket: WebSocket, evaluation_id: str):
+    """语音口试WebSocket"""
+    await handle_oral_exam_ws(websocket, evaluation_id)
+
+@app.get("/api/oral-exam/{evaluation_id}/dialogue")
+async def get_dialogue_history(evaluation_id: str):
+    """获取口试对话记录（供复盘）"""
+    eval_data = storage.get(evaluation_id)
+    if not eval_data:
+        raise HTTPException(status_code=404, detail="评估不存在")
+    
+    return {
+        "dialogue": eval_data.get("oral_record", {}).get("dialogue", []),
+        "full_text": eval_data.get("oral_record", {}).get("dialogue_text", "")
+    }
 
 
 # ==================== 启动入口 ====================

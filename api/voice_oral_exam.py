@@ -1,4 +1,4 @@
-"""语音口试WebSocket处理器 - 完整修复版"""
+"""语音口试WebSocket处理器 - 完整修复版（支持代码展示，TTS仅读文字）"""
 
 import json
 import base64
@@ -6,7 +6,7 @@ import asyncio
 from fastapi import WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
-from oral_exam_engine import OralExamState, OralExaminer
+from oral_exam_engine import OralExamState, OralExaminer, extract_code_snippets
 from voice_service import voice_service
 
 class ConnectionClosedError(Exception):
@@ -54,7 +54,7 @@ class VoiceOralExamSession:
                     print(f"[Session {self.evaluation_id}] 心跳检测到连接关闭")
                     self._active = False
                     break
-        except asyncio.CancelledError:  # ✅ 正确：使用 CancelledError
+        except asyncio.CancelledError:
             pass
         except Exception as e:
             print(f"[Session {self.evaluation_id}] 心跳异常: {e}")
@@ -80,17 +80,17 @@ class VoiceOralExamSession:
             raise ConnectionClosedError(f"发送失败: {e}")
             
     async def send_audio(self, text: str, is_timeout: bool = False, is_repeat: bool = False):
-        """发送音频 - 一次性发送完整数据"""
+        """发送音频 - 仅负责语音播放，文字已提前发送"""
         if not self._active:
             return
             
-        print(f"[Session {self.evaluation_id}] 准备发送音频: {text[:30]}...")
-        
         try:
+            # 发送语音准备状态（前端可用作"正在朗读"提示，不影响文字显示）
             await self._send_json({
                 "type": "audio_generating",
                 "message": "正在准备语音...",
-                "is_repeat": is_repeat
+                "is_repeat": is_repeat,
+                "preview_text": text[:50] + "..." if len(text) > 50 else text  # 可选：给前端显示正在读哪段
             })
         except ConnectionClosedError:
             return
@@ -99,12 +99,14 @@ class VoiceOralExamSession:
             self.is_speaking = True
             
             try:
+                # 将[代码片段]替换为语音友好的提示
+                tts_text = text.replace('[代码片段]', '（请看屏幕上的代码片段）')
+                
                 # 启动TTS
                 tts_task = asyncio.create_task(
-                    voice_service.text_to_speech(text, slow=is_repeat, max_retries=1)
+                    voice_service.text_to_speech(tts_text, slow=is_repeat, max_retries=1)
                 )
                 
-                # 监控连接状态
                 while not tts_task.done():
                     if not self._active:
                         tts_task.cancel()
@@ -116,12 +118,9 @@ class VoiceOralExamSession:
                         return
                     await asyncio.sleep(0.1)
                 
-                # 获取完整音频
                 try:
                     _, audio_bytes = await tts_task
-                    print(f"[Session {self.evaluation_id}] TTS完成: {len(audio_bytes)}bytes")
                 except asyncio.CancelledError:
-                    print(f"[Session {self.evaluation_id}] TTS被取消")
                     self.is_speaking = False
                     return
                 except Exception as e:
@@ -134,7 +133,7 @@ class VoiceOralExamSession:
                     self.is_speaking = False
                     return
                 
-                # 发送音频开始标记
+                # 发送音频开始播放通知
                 await self._send_json({
                     "type": "audio_start",
                     "text_length": len(text),
@@ -143,22 +142,16 @@ class VoiceOralExamSession:
                     "audio_size": len(audio_bytes)
                 })
                 
-                # 一次性发送完整音频（不再分块）
+                # 发送音频二进制数据
                 await self.ws.send_bytes(audio_bytes)
-                print(f"[Session {self.evaluation_id}] 已发送完整音频: {len(audio_bytes)}bytes")
                 
-                # 发送结束标记
+                # 发送音频结束通知（触发前端开始静默计时）
                 await self._send_json({"type": "audio_end"})
-                print(f"[Session {self.evaluation_id}] 音频发送完成")
                 
             except ConnectionClosedError:
                 print(f"[Session {self.evaluation_id}] 发送音频时连接关闭")
             except Exception as e:
                 print(f"[Session {self.evaluation_id}] 发送音频错误: {e}")
-                try:
-                    await self._send_json({"type": "audio_error", "message": str(e)})
-                except:
-                    pass
             finally:
                 self.is_speaking = False
 
@@ -172,13 +165,11 @@ class VoiceOralExamSession:
         
         try:
             if msg_type == "start_exam":
-                # 关键：更新静默时间配置（延长为25/50/75秒）
                 if "timeout_strategy" in message:
                     self.state.timeout_strategy = message["timeout_strategy"]
                 if "silence_thresholds" in message:
                     self.state.silence_thresholds = message["silence_thresholds"]
                 else:
-                    # 默认使用延长的时间
                     self.state.silence_thresholds = [25, 50, 75]
                 
                 await self._send_json({
@@ -191,7 +182,6 @@ class VoiceOralExamSession:
                 )
                 
             elif msg_type == "audio_data":
-                # 打断当前音频
                 if self.is_speaking and self.current_task:
                     self.current_task.cancel()
                     try:
@@ -249,29 +239,91 @@ class VoiceOralExamSession:
             print(f"[Session {self.evaluation_id}] 处理错误: {e}")
     
     async def _background_generate_and_send(self, trigger: str):
-        """后台生成"""
+        """后台生成并发送（先展示骨架屏→再展示文字→最后语音）"""
         try:
-            text = await self.examiner.generate_next_utterance(trigger)
+            # 【关键修复1】立即发送"正在输入"状态，前端据此显示占位聊天框（骨架屏）
+            await self._send_json({
+                "type": "examiner_typing",  # 新增消息类型
+                "status": "generating",
+                "message": "考官正在准备问题..."
+            })
+            
+            # 【关键修复2】获取模型原始输出（包含可能的<code>标签）
+            raw_text = await self.examiner.generate_next_utterance(trigger)
             if not self._active:
                 return
-            await self.send_audio(text, is_timeout=False)
+            
+            # 处理代码：提取文字和代码片段
+            clean_text, code_snippets, has_code = extract_code_snippets(raw_text)
+            
+            # 【关键修复3】确保文字内容不为空，如果只有代码则添加默认引导语
+            display_text = clean_text
+            if not display_text.strip() or display_text.strip() == '[代码片段]':
+                display_text = "请查看以下代码并分析：" + clean_text
+            
+            # 映射响应类型
+            type_map = {
+                "initial": "question",
+                "follow_up": "follow_up", 
+                "clarification": "explanation",
+                "repeat": "repeat",
+                "hint": "hint",
+                "next_topic": "new_topic"
+            }
+            response_type = type_map.get(trigger, "question")
+            
+            # 【关键修复4】立即发送完整问题内容（不含[语音内容]这种占位符）
+            # 前端收到后立即渲染实际聊天框，替换掉骨架屏
+            await self._send_json({
+                "type": "examiner_response",
+                "response_type": response_type,
+                "text": display_text,              # 完整问题文字，不是"[语音内容]"
+                "code_snippets": code_snippets,    # 代码片段数组
+                "has_code": has_code,
+                "depth": self.examiner.state.current_depth,
+                "round": self.examiner.state.exam_round,
+                "question_id": f"r{self.examiner.state.exam_round}_d{self.examiner.state.current_depth}",
+                "timestamp": asyncio.get_event_loop().time()
+            })
+            
+            # 【关键修复5】最后发送语音（仅朗读文字部分）
+            # TTS文本清理：将[代码片段]替换为语音提示
+            await self.send_audio(
+                display_text,
+                is_timeout=False,
+                is_repeat=(response_type == "repeat")
+            )
+            
+            # 【关键修复6】考官语音播放完成后，告知前端可以开始录音
             if self._active:
                 await self.examiner.start_timeout_monitor()
+                await self._send_json({"type": "listening", "message": "请回答"})
+                
         except asyncio.CancelledError:
-            pass
+            # 取消时发送中断提示
+            await self._send_json({
+                "type": "examiner_cancelled",
+                "message": "已取消"
+            })
         except ConnectionClosedError:
             self._active = False
         except Exception as e:
             print(f"[Session {self.evaluation_id}] 后台生成错误: {e}")
+            await self._send_json({
+                "type": "error", 
+                "message": f"生成问题失败: {str(e)}"
+            })
     
     async def _background_process_audio(self, base64_data: str):
-        """后台处理语音"""
+        """后台处理语音 - 【修复】添加输入就绪状态重置"""
         try:
             audio_bytes = base64.b64decode(base64_data)
             asr_result = await voice_service.speech_to_text(audio_bytes)
             
             if not asr_result.get("success"):
                 await self._send_json({"type": "error", "message": "识别失败"})
+                # 【关键修复】识别失败时重置输入按钮，避免卡死
+                await self._send_json({"type": "input_ready", "message": "请重试"})
                 return
                 
             student_text = asr_result["text"]
@@ -284,16 +336,81 @@ class VoiceOralExamSession:
             result = await self.examiner.process_student_input(student_text)
             
             if result["action"] == "speak":
+                # 处理追问的代码
+                content = result["content"]
+                clean_content, code_snippets, has_code = extract_code_snippets(content)
+                
+                # 发送文字+代码
                 await self._send_json({
                     "type": "examiner_response",
                     "response_type": result["type"],
-                    "text": result["content"]
+                    "text": clean_content,
+                    "code_snippets": code_snippets,
+                    "has_code": has_code,
+                    "depth": self.examiner.state.current_depth,
+                    "round": self.examiner.state.exam_round,
+                    "question_id": f"r{self.examiner.state.exam_round}_d{self.examiner.state.current_depth}"
                 })
+                
+                # 发送语音（仅文字）
                 is_repeat = result["type"] == "repeat"
-                await self.send_audio(result["content"], is_repeat=is_repeat)
+                await self.send_audio(clean_content, is_repeat=is_repeat)
+                
+                # 【关键修复】考官追问播放完成后，告知前端可以准备下一段录音
+                await self._send_json({"type": "listening", "message": "请继续回答"})
+                await self.examiner.start_timeout_monitor()
+                
             elif result["action"] == "finish":
                 await self._send_json({"type": "exam_complete", "reason": result.get("reason")})
                 await self.finish_exam(result.get("reason", "normal"))
+                
+            elif result["action"] == "wait_and_listen":
+                await self._send_json({"type": "listening", "message": "请继续"})
+                await self.examiner.start_timeout_monitor()
+                
+        except ConnectionClosedError:
+            self._active = False
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            print(f"[Session {self.evaluation_id}] 处理音频错误: {e}")
+            await self._send_json({"type": "error", "message": "处理失败"})
+            # 【关键修复】出错时也重置输入按钮，避免卡死
+            try:
+                await self._send_json({"type": "input_ready", "message": "请重试"})
+            except:
+                pass
+    
+    async def _background_process_text(self, text: str):
+        """后台处理文本（快捷指令等）"""
+        try:
+            result = await self.examiner.process_student_input(text)
+            
+            if result["action"] == "speak":
+                content = result["content"]
+                clean_content, code_snippets, has_code = extract_code_snippets(content)
+                
+                await self._send_json({
+                    "type": "examiner_response",
+                    "response_type": result["type"],
+                    "text": clean_content,
+                    "code_snippets": code_snippets,
+                    "has_code": has_code,
+                    "depth": self.examiner.state.current_depth,
+                    "round": self.examiner.state.exam_round,
+                    "question_id": f"r{self.examiner.state.exam_round}_d{self.examiner.state.current_depth}"
+                })
+                
+                is_repeat = result["type"] == "repeat"
+                await self.send_audio(clean_content, is_repeat=is_repeat)
+                
+                # 【关键修复】文字回复播放完成后，允许继续输入
+                await self._send_json({"type": "listening", "message": "请回答"})
+                await self.examiner.start_timeout_monitor()
+                
+            elif result["action"] == "finish":
+                await self.finish_exam(result.get("reason", "normal"))
+                
             elif result["action"] == "wait_and_listen":
                 await self._send_json({"type": "listening"})
                 await self.examiner.start_timeout_monitor()
@@ -303,40 +420,18 @@ class VoiceOralExamSession:
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            print(f"[Session {self.evaluation_id}] 处理音频错误: {e}")
-    
-    async def _background_process_text(self, text: str):
-        """后台处理文本"""
-        try:
-            result = await self.examiner.process_student_input(text)
-            
-            if result["action"] == "speak":
-                is_repeat = result["type"] == "repeat"
-                await self.send_audio(result["content"], is_repeat=is_repeat)
-            elif result["action"] == "finish":
-                await self.finish_exam(result.get("reason", "normal"))
-            elif result["action"] == "wait_and_listen":
-                await self.examiner.start_timeout_monitor()
-        except ConnectionClosedError:
-            self._active = False
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
             print(f"[Session {self.evaluation_id}] 处理文本错误: {e}")
     
     async def _handle_timeout_event(self, event_type: str, text: str):
-        """超时事件（关键修复：防冲突机制）"""
+        """超时事件处理"""
         if not self._active:
             return
         
-        # 关键修复：如果正在播放音频，延迟处理超时事件
         if self.is_speaking:
             print(f"[Session {self.evaluation_id}] 超时事件冲突：正在播放音频，延迟5秒")
             await asyncio.sleep(5)
-            # 再次检查状态
             if not self._active or not self.examiner.state.waiting_for_response:
                 return
-            # 如果还在说话，取消此次超时（等下次触发）
             if self.is_speaking:
                 print(f"[Session {self.evaluation_id}] 超时事件取消：仍在播放")
                 return
@@ -344,15 +439,12 @@ class VoiceOralExamSession:
         print(f"[Session {self.evaluation_id}] 执行超时事件: {event_type}")
         
         if event_type == "silence_reminder":
-            # 第一级提醒（25秒）
             await self.send_audio(text, is_timeout=True)
         elif event_type == "timeout_skip":
-            # 第二级：跳过题目（50秒）
             await self.send_audio(text, is_timeout=True)
             self.state.current_depth = 0
             self.state.exam_round += 1
         elif event_type == "exam_end_timeout":
-            # 第三级：结束考试（75秒）
             await self.send_audio(text, is_timeout=True)
             await asyncio.sleep(2)
             await self.finish_exam("timeout")
@@ -375,11 +467,11 @@ class VoiceOralExamSession:
         except Exception as e:
             print(f"[Session {self.evaluation_id}] 结束考试错误: {e}")
 
-# WebSocket端点
+# WebSocket端点管理
 oral_sessions = {}
 
 async def handle_oral_exam_ws(websocket: WebSocket, evaluation_id: str):
-    """WebSocket入口"""
+    """WebSocket入口 - 修复接收超时问题"""
     print(f"[WS] 新连接: {evaluation_id}")
     
     session = oral_sessions.get(evaluation_id)
@@ -400,9 +492,26 @@ async def handle_oral_exam_ws(websocket: WebSocket, evaluation_id: str):
     try:
         while session._active:
             try:
-                data = await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
+                # 考官生成问题+语音播放可能较长，学生思考也需要时间
+                data = await asyncio.wait_for(
+                    websocket.receive_text(), 
+                    timeout=300.0  # 5分钟
+                )
             except asyncio.TimeoutError:
-                print(f"[WS] {evaluation_id} 接收超时")
+                print(f"[WS] {evaluation_id} 接收超时(5分钟无活动)，关闭连接")
+                session._active = False
+                try:
+                    await session._send_json({
+                        "type": "timeout_action",
+                        "action": "end_exam",
+                        "message": "连接超时，考试结束"
+                    })
+                except:
+                    pass
+                break
+            except WebSocketDisconnect:
+                print(f"[WS] {evaluation_id} 客户端主动断开")
+                session._active = False
                 break
             
             if not session._active:
@@ -412,34 +521,42 @@ async def handle_oral_exam_ws(websocket: WebSocket, evaluation_id: str):
                 message = json.loads(data)
                 await session.handle_message(message)
             except json.JSONDecodeError:
-                await session._send_json({"type": "error", "message": "消息格式错误"})
+                try:
+                    await session._send_json({"type": "error", "message": "消息格式错误"})
+                except:
+                    pass
             except ConnectionClosedError:
+                print(f"[WS] {evaluation_id} 发送时连接关闭")
+                session._active = False
                 break
             
     except WebSocketDisconnect:
-        print(f"[WS] {evaluation_id} 客户端断开")
+        print(f"[WS] {evaluation_id} 连接断开")
+        session._active = False
     except Exception as e:
         print(f"[WS] {evaluation_id} 异常: {e}")
+        session._active = False
     finally:
         print(f"[WS] {evaluation_id} 清理中...")
-        session._active = False
-        
-        if session.heartbeat_task:
-            session.heartbeat_task.cancel()
-            try:
-                await session.heartbeat_task
-            except asyncio.CancelledError:
-                pass
         
         try:
             await session.examiner.stop_timeout_monitor()
-            if session.current_task:
+            
+            if session.current_task and not session.current_task.done():
                 session.current_task.cancel()
                 try:
-                    await session.current_task
-                except asyncio.CancelledError:
+                    await asyncio.wait_for(session.current_task, timeout=1.0)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
                     pass
+            
+            if session.heartbeat_task and not session.heartbeat_task.done():
+                session.heartbeat_task.cancel()
+                try:
+                    await asyncio.wait_for(session.heartbeat_task, timeout=1.0)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    pass
+                    
         except Exception as e:
             print(f"[WS] {evaluation_id} 清理异常: {e}")
-            
-        print(f"[WS] {evaluation_id} 清理完成")
+        finally:
+            print(f"[WS] {evaluation_id} 清理完成")

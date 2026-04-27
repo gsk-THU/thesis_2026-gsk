@@ -3,10 +3,10 @@ from extractor import batch_extract
 from database import KnowledgeBase
 
 # 1. 提取所有 HTML 内容
-# sections = batch_extract("/home/gsk/uCore-Tutorial-Guide-2025S")
+# sections = batch_extract("/home/gsk/rCore-Tutorial-Guide-2025S")
 
-# # 2. 构建知识库
-# kb = KnowledgeBase(collection_name="ucore_2025s", persist_dir='/home/gsk/chroma')
+# # # 2. 构建知识库
+# kb = KnowledgeBase(collection_name="rcore_2025s", persist_dir='/home/gsk/chroma')
 # kb.add_documents(sections)
 
 # # 3. 查看统计

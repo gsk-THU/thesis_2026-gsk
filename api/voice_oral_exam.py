@@ -170,7 +170,7 @@ class VoiceOralExamSession:
                 if "silence_thresholds" in message:
                     self.state.silence_thresholds = message["silence_thresholds"]
                 else:
-                    self.state.silence_thresholds = [25, 50, 75]
+                    self.state.silence_thresholds = [120, 180, 240]
                 
                 await self._send_json({
                     "type": "status",

@@ -70,7 +70,7 @@ class OralExamState:
         self.max_rounds = 3
         
         # 超时管理配置 - 已延长为 25/50/75 秒
-        self.silence_thresholds = [25, 50, 75]
+        self.silence_thresholds = [120, 180, 240]
         self.max_silence_level = 3
         self.current_silence_level = 0
         self.last_activity_time = datetime.now()

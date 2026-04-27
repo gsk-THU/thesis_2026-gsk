@@ -14,7 +14,7 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, WebSocket
+from fastapi import FastAPI, HTTPException, WebSocket, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from voice_oral_exam import VoiceOralExamSession, oral_sessions, handle_oral_exam_ws
@@ -34,6 +34,14 @@ backend_module.__path__ = [backend_path]
 sys.modules["backend"] = backend_module
 
 from question_proposer import get_questions, AgentResponse
+
+# ========== 导入 OS 实验提问器 ==========
+from os_proposer import (
+    CodeExtractor,
+    DiffAnalyzer,
+    OSExperimentAnalyzer,
+    QuestionProposer as OSQuestionProposer,
+)
 
 from backend.main import (
     run_grading_council,
@@ -143,6 +151,18 @@ class EvaluationStorage:
             self._store[eval_id]["updated_at"] = datetime.now().isoformat()
 
 storage = EvaluationStorage()
+
+
+# ==================== OS 实验提问器单例 ====================
+
+_os_proposer_instance: Optional[OSQuestionProposer] = None
+
+def get_os_proposer() -> OSQuestionProposer:
+    """获取或初始化 OS QuestionProposer 单例"""
+    global _os_proposer_instance
+    if _os_proposer_instance is None:
+        _os_proposer_instance = OSQuestionProposer()
+    return _os_proposer_instance
 
 
 # ==================== FastAPI 应用 ====================
@@ -312,14 +332,16 @@ async def root():
         "endpoints": {
             "start": "POST /api/evaluation/start - 提交原始Q&A，生成深度测试",
             "submit": "POST /api/evaluation/{id}/complete - 提交考官回答，由委员会评价",
-            "status": "GET /api/evaluation/{id} - 查询评估状态"
+            "status": "GET /api/evaluation/{id} - 查询评估状态",
+            "os_start": "POST /api/os-experiment/start - OS实验模式：上传代码zip生成问题",
+            "os_diff": "POST /api/os-experiment/diff - OS实验模式：仅分析代码差异"
         }
     }
 
 
 @app.post("/api/evaluation/start", response_model=ExamQuestionsResponse)
 async def start_evaluation(request: StartEvaluationRequest):
-    """第一阶段：提交原始问题与答案，生成考官深度测试问题"""
+    """第一阶段：提交原始问题与答案，生成考官深度测试问题（原有模式）"""
     try:
         logger.info(f"开始评估流程 - 学生: {request.student_id or 'anonymous'}")
         
@@ -361,14 +383,193 @@ async def start_evaluation(request: StartEvaluationRequest):
         raise HTTPException(status_code=500, detail=f"生成深度测试问题失败: {str(e)}")
 
 
+# ==================== OS 实验模式 API ====================
+
+@app.post("/api/os-experiment/start", response_model=ExamQuestionsResponse)
+async def os_experiment_start(
+    experiment_requirement: str = Form(..., description="实验要求描述"),
+    before_zip: UploadFile = File(..., description="修改前的代码zip"),
+    after_zip: UploadFile = File(..., description="修改后的代码zip"),
+    num_questions: int = Form(5, description="生成问题数量"),
+    student_id: Optional[str] = Form(None, description="学生ID")
+):
+    """
+    OS实验模式：接收修改前后的代码zip，分析差异并生成面试问题。
+    返回格式与 /api/evaluation/start 兼容，前端可直接复用 ExamPhase。
+    """
+    # ========== 诊断日志：请求到达 ==========
+    logger.info("=" * 60)
+    logger.info("[DIAG] /api/os-experiment/start 请求到达")
+    logger.info(f"[DIAG] experiment_requirement={experiment_requirement[:50]}...")
+    logger.info(f"[DIAG] before_zip filename={before_zip.filename}, content_type={before_zip.content_type}")
+    logger.info(f"[DIAG] after_zip filename={after_zip.filename}, content_type={after_zip.content_type}")
+    logger.info(f"[DIAG] num_questions={num_questions}, student_id={student_id}")
+    logger.info("=" * 60)
+    
+    try:
+        logger.info(f"OS实验模式启动 - 学生: {student_id or 'anonymous'}")
+        
+        # 1. 读取zip文件
+        logger.info("[DIAG] 步骤1: 读取zip字节...")
+        before_bytes = await before_zip.read()
+        after_bytes = await after_zip.read()
+        logger.info(f"[DIAG] before_bytes={len(before_bytes)} bytes, after_bytes={len(after_bytes)} bytes")
+        
+        # 2. 提取代码
+        logger.info("[DIAG] 步骤2: 提取代码...")
+        before_code = CodeExtractor.extract_from_zip(before_bytes)
+        after_code = CodeExtractor.extract_from_zip(after_bytes)
+        logger.info(f"[DIAG] before_code files={list(before_code.keys())}")
+        logger.info(f"[DIAG] after_code files={list(after_code.keys())}")
+        
+        if not before_code and not after_code:
+            logger.error("[DIAG] 未能从zip中提取到任何代码文件")
+            raise HTTPException(status_code=400, detail="未能从zip中提取到任何代码文件")
+        
+        # 3. 分析差异
+        logger.info("[DIAG] 步骤3: 分析差异...")
+        diff_report = DiffAnalyzer.analyze(before_code, after_code)
+        logger.info(f"[DIAG] diff_report.summary={diff_report.summary.replace(chr(10), ' | ')}")
+        logger.info(f"[DIAG] added={len(diff_report.added_files)}, deleted={len(diff_report.deleted_files)}, modified={len(diff_report.modified_files)}")
+        
+        # 4. 生成问题（异步包装同步调用）
+        logger.info("[DIAG] 步骤4: 调用LLM生成问题...")
+        proposer = get_os_proposer()
+        logger.info(f"[DIAG] proposer model={proposer.model}, api_key 前8位={proposer.api_key[:8] if proposer.api_key else 'None'}...")
+        
+        loop = asyncio.get_event_loop()
+        question_set = await loop.run_in_executor(
+            None,
+            lambda: proposer.generate_questions(
+                experiment_requirement=experiment_requirement,
+                before_code=before_code,
+                after_code=after_code,
+                diff_report=diff_report,
+                num_questions=num_questions
+            )
+        )
+        
+        logger.info(f"[DIAG] question_set generated: {len(question_set.questions)} questions")
+        for q in question_set.questions:
+            logger.info(f"[DIAG] Q{q.id}[{q.category}]: {q.question[:60]}...")
+        
+        # 5. 构建与原有API兼容的问题列表
+        questions_with_id = [
+            {"id": str(q.id), "text": f"[{q.category.upper()}] {q.question}"}
+            for q in question_set.questions
+        ]
+        logger.info(f"[DIAG] questions_with_id count={len(questions_with_id)}")
+        
+        # 6. 存入存储（复用原有评分流程）
+        eval_id = storage.create({
+            "original_question": experiment_requirement,
+            "original_answer": f"[OS实验] 修改文件: {len(diff_report.modified_files)}个, 新增: {len(diff_report.added_files)}个",
+            "student_id": student_id,
+            "subject": "os_experiment",
+            "exam_type": "os_experiment",
+            "diff_summary": diff_report.summary,
+            "key_changes": OSExperimentAnalyzer.identify_key_changes(diff_report, after_code)
+        })
+        
+        storage.update(eval_id, {
+            "status": "questions_generated",
+            "exam_questions": questions_with_id,
+            "diff_report": {
+                "added_files": diff_report.added_files,
+                "deleted_files": diff_report.deleted_files,
+                "modified_files": [
+                    {
+                        "path": d.file_path,
+                        "changed_lines_new": len(d.changed_lines_new),
+                        "changed_lines_old": len(d.changed_lines_old)
+                    }
+                    for d in diff_report.modified_files
+                ],
+                "summary": diff_report.summary
+            }
+        })
+        
+        logger.info(f"OS实验 {eval_id}: 生成 {len(questions_with_id)} 个考官问题")
+        
+        return ExamQuestionsResponse(
+            evaluation_id=eval_id,
+            status="questions_generated",
+            original_question=experiment_requirement[:200],
+            exam_questions=questions_with_id,
+            question_count=len(questions_with_id),
+            generated_at=datetime.now().isoformat()
+        )
+        
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.error(f"OS实验配置错误: {e}")
+        raise HTTPException(status_code=500, detail=f"配置错误: {str(e)}")
+    except Exception as e:
+        logger.error(f"OS实验生成问题失败: {e}")
+        import traceback
+        logger.error(f"[DIAG] 完整异常堆栈:\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"OS实验评估失败: {str(e)}")
+
+
+@app.post("/api/os-experiment/diff")
+async def os_experiment_diff(
+    before_zip: UploadFile = File(..., description="修改前的代码zip"),
+    after_zip: UploadFile = File(..., description="修改后的代码zip")
+):
+    """
+    OS实验模式：仅分析代码差异，不生成问题。
+    """
+    logger.info("[DIAG] /api/os-experiment/diff 请求到达")
+    
+    try:
+        before_bytes = await before_zip.read()
+        after_bytes = await after_zip.read()
+        logger.info(f"[DIAG] before={len(before_bytes)}B, after={len(after_bytes)}B")
+        
+        before_code = CodeExtractor.extract_from_zip(before_bytes)
+        after_code = CodeExtractor.extract_from_zip(after_bytes)
+        logger.info(f"[DIAG] before files={list(before_code.keys())}, after files={list(after_code.keys())}")
+        
+        diff_report = DiffAnalyzer.analyze(before_code, after_code)
+        key_changes = OSExperimentAnalyzer.identify_key_changes(diff_report, after_code)
+        
+        logger.info(f"[DIAG] diff summary: {diff_report.summary.replace(chr(10), ' | ')}")
+        
+        return {
+            "success": True,
+            "data": {
+                "added_files": diff_report.added_files,
+                "deleted_files": diff_report.deleted_files,
+                "modified_files": [
+                    {
+                        "path": d.file_path,
+                        "changed_lines_new": len(d.changed_lines_new),
+                        "changed_lines_old": len(d.changed_lines_old),
+                        "diff_preview": '\n'.join(d.unified_diff.split('\n')[:30])
+                    }
+                    for d in diff_report.modified_files
+                ],
+                "unchanged_files": diff_report.unchanged_files,
+                "key_changes": key_changes,
+                "summary": diff_report.summary
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"OS差异分析失败: {e}")
+        import traceback
+        logger.error(f"[DIAG] 完整异常堆栈:\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"差异分析失败: {str(e)}")
+
+
+# ==================== 原有评分流程（两种模式共用）====================
+
 @app.post("/api/evaluation/{evaluation_id}/complete", response_model=FinalEvaluationResult)
 async def complete_evaluation(evaluation_id: str, request: SubmitExamAnswersRequest):
     """
-    第二阶段：提交考官问题回答，由LLM委员会进行完整评价。
-    
-    流程：
-    1. 对每个考官问题的回答运行完整的三阶段委员会评分（教师独立评分→同行评议→主席裁定）
-    2. 由主席模型综合所有考官问题的评分结果，生成整体理解评估（无代码硬编码规则）
+    第二阶段：提交考官问题回答，由LLM委员会进行完整评分。
+    原有模式和OS实验模式共用此接口。
     """
     eval_data = storage.get(evaluation_id)
     if not eval_data:
@@ -389,7 +590,6 @@ async def complete_evaluation(evaluation_id: str, request: SubmitExamAnswersRequ
         for q in exam_questions:
             q_id = q["id"]
             if q_id in request.exam_answers:
-                # 为每个问题运行完整的三阶段评分流程
                 task = run_grading_council(q["text"], request.exam_answers[q_id])
                 scoring_tasks.append({
                     "q_id": q_id,
@@ -408,7 +608,6 @@ async def complete_evaluation(evaluation_id: str, request: SubmitExamAnswersRequ
         exam_scores_details = []
         
         for item in scoring_tasks:
-            # 等待每个问题的三阶段评分完成
             stage1_results, stage2_results, stage3_result, metadata = await item["task"]
             
             result_data = {
@@ -422,7 +621,6 @@ async def complete_evaluation(evaluation_id: str, request: SubmitExamAnswersRequ
             }
             exam_results.append(result_data)
             
-            # 构建前端展示用的详情对象
             detail = QuestionScoreDetail(
                 question_id=item["q_id"],
                 question_text=item["q_text"],
@@ -439,7 +637,7 @@ async def complete_evaluation(evaluation_id: str, request: SubmitExamAnswersRequ
             )
             exam_scores_details.append(detail)
         
-        # 由主席模型进行综合评估（非代码硬编码）
+        # 由主席模型进行综合评估
         logger.info(f"评估 {evaluation_id}: 调用主席模型生成综合评估")
         overall_assessment = await chairman_overall_assessment(
             original_question=eval_data["original_question"],
@@ -517,7 +715,7 @@ async def start_oral_exam(request: OralExamStartRequest):
             "original_answer": request.original_answer,
             "student_id": request.student_id,
             "subject": request.subject,
-            "exam_type": "oral_dialogue",  # 标记为对话式口试
+            "exam_type": "oral_dialogue",
             "status": "oral_exam_ready"
         })
         
@@ -536,6 +734,11 @@ async def start_oral_exam(request: OralExamStartRequest):
             "evaluation_id": eval_id,
             "status": "ready",
             "websocket_url": f"ws://localhost:8000/ws/oral-exam/{eval_id}",
+            "config": {
+                "sample_rate": 24000,
+                "language": "zh",
+                "tts_voice": "zh-CN-XiaoxiaoNeural"
+            },
             "instructions": {
                 "start_command": "发送 {'type': 'start_exam'} 开始",
                 "supported_commands": ["请重复", "解释一下", "给点提示", "下一题", "我答完了"],
@@ -568,4 +771,4 @@ async def get_dialogue_history(evaluation_id: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True, log_level="info")
+    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=False, log_level="info")

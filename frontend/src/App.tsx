@@ -1,6 +1,5 @@
 /**
- * App.tsx - LLM委员会考试系统（整合文字考试与语音口试）
- * 修复：静默计时逻辑 - 只在完全静默时计时，说话时不计时
+ * App.tsx - LLM委员会考试系统（整合文字考试与语音口试 + OS实验模式）
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -109,6 +108,15 @@ async function startEvaluation(data: StartEvaluationRequest): Promise<ExamQuesti
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+async function startOSEvaluation(formData: FormData): Promise<ExamQuestionsResponse> {
+  const res = await fetch(`${API_BASE_URL}/api/os-experiment/start`, {
+    method: 'POST',
+    body: formData, // 浏览器自动设置 Content-Type 含 boundary
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
@@ -243,18 +251,190 @@ const ExaminerMessage: React.FC<{
 };
 
 // ==================== 文字考试组件 ====================
+
+// --- 原有模式 ---
+const OriginalStartForm: React.FC<{
+  question: string;
+  setQuestion: (v: string) => void;
+  answer: string;
+  setAnswer: (v: string) => void;
+  studentId: string;
+  setStudentId: (v: string) => void;
+  disabled: boolean;
+}> = ({ question, setQuestion, answer, setAnswer, studentId, setStudentId, disabled }) => (
+  <>
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">原始作业</label>
+      <textarea
+        value={question}
+        onChange={(e) => setQuestion(e.target.value)}
+        placeholder="例如：给定两个字符串形式输入的整数..."
+        className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 h-24"
+        required
+        disabled={disabled}
+      />
+    </div>
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">提交的结果</label>
+      <textarea
+        value={answer}
+        onChange={(e) => setAnswer(e.target.value)}
+        placeholder="在此输入您对该问题的详细回答..."
+        className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 h-48"
+        required
+        disabled={disabled}
+      />
+    </div>
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">学生ID</label>
+      <input
+        type="text"
+        value={studentId}
+        onChange={(e) => setStudentId(e.target.value)}
+        placeholder="例如：student_001"
+        className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+        disabled={disabled}
+      />
+    </div>
+  </>
+);
+
+// --- OS实验模式 ---
+const OSStartForm: React.FC<{
+  requirement: string;
+  setRequirement: (v: string) => void;
+  beforeFile: File | null;
+  setBeforeFile: (f: File | null) => void;
+  afterFile: File | null;
+  setAfterFile: (f: File | null) => void;
+  studentId: string;
+  setStudentId: (v: string) => void;
+  disabled: boolean;
+}> = ({ requirement, setRequirement, beforeFile, setBeforeFile, afterFile, setAfterFile, studentId, setStudentId, disabled }) => {
+  const fileInputRef1 = useRef<HTMLInputElement>(null);
+  const fileInputRef2 = useRef<HTMLInputElement>(null);
+
+  return (
+    <>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">实验要求描述</label>
+        <textarea
+          value={requirement}
+          onChange={(e) => setRequirement(e.target.value)}
+          placeholder="例如：实验三：内存管理。实现一个简化的内存分配器，支持首次适应和最佳适应算法..."
+          className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 h-32"
+          required
+          disabled={disabled}
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">修改前代码 (ZIP)</label>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => fileInputRef1.current?.click()}
+            className="px-4 py-2 bg-gray-100 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-200 transition-colors"
+            disabled={disabled}
+          >
+            选择文件
+          </button>
+          <span className="text-sm text-gray-600 truncate max-w-[200px]">
+            {beforeFile ? beforeFile.name : '未选择文件'}
+          </span>
+        </div>
+        <input
+          ref={fileInputRef1}
+          type="file"
+          accept=".zip"
+          className="hidden"
+          onChange={(e) => setBeforeFile(e.target.files?.[0] || null)}
+          disabled={disabled}
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">修改后代码 (ZIP)</label>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => fileInputRef2.current?.click()}
+            className="px-4 py-2 bg-gray-100 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-200 transition-colors"
+            disabled={disabled}
+          >
+            选择文件
+          </button>
+          <span className="text-sm text-gray-600 truncate max-w-[200px]">
+            {afterFile ? afterFile.name : '未选择文件'}
+          </span>
+        </div>
+        <input
+          ref={fileInputRef2}
+          type="file"
+          accept=".zip"
+          className="hidden"
+          onChange={(e) => setAfterFile(e.target.files?.[0] || null)}
+          disabled={disabled}
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">学生ID</label>
+        <input
+          type="text"
+          value={studentId}
+          onChange={(e) => setStudentId(e.target.value)}
+          placeholder="例如：student_001"
+          className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+          disabled={disabled}
+        />
+      </div>
+    </>
+  );
+};
+
 const StartPhase: React.FC<{
-  onStart: (data: StartEvaluationRequest) => void;
+  onStartOriginal: (data: StartEvaluationRequest) => void;
+  onStartOS: (formData: FormData) => void;
   loading: boolean;
-}> = ({ onStart, loading }) => {
+}> = ({ onStartOriginal, onStartOS, loading }) => {
+  const [mode, setMode] = useState<'original' | 'os'>('original');
+
+  // 原有模式字段
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState('');
   const [studentId, setStudentId] = useState('');
 
+  // OS模式字段
+  const [requirement, setRequirement] = useState('');
+  const [beforeFile, setBeforeFile] = useState<File | null>(null);
+  const [afterFile, setAfterFile] = useState<File | null>(null);
+  const [osStudentId, setOsStudentId] = useState('');
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onStart({ original_question: question, original_answer: answer, student_id: studentId || undefined });
+    if (mode === 'original') {
+      onStartOriginal({
+        original_question: question,
+        original_answer: answer,
+        student_id: studentId || undefined,
+      });
+    } else {
+      if (!beforeFile || !afterFile) {
+        alert('请上传修改前和修改后的代码ZIP文件');
+        return;
+      }
+      const formData = new FormData();
+      formData.append('experiment_requirement', requirement);
+      formData.append('before_zip', beforeFile);
+      formData.append('after_zip', afterFile);
+      formData.append('num_questions', '5');
+      if (osStudentId) formData.append('student_id', osStudentId);
+      onStartOS(formData);
+    }
   };
+
+  const isSubmitDisabled = loading || (mode === 'original' ? (!question.trim() || !answer.trim()) : (!requirement.trim() || !beforeFile || !afterFile));
 
   return (
     <div className="max-w-3xl mx-auto p-6 bg-white rounded-lg shadow-md">
@@ -263,43 +443,60 @@ const StartPhase: React.FC<{
         <p className="text-gray-600">使用Agent根据作业出题并自动评分</p>
       </div>
 
+      {/* 模式切换 */}
+      <div className="flex bg-gray-100 rounded-lg p-1 mb-6">
+        <button
+          type="button"
+          onClick={() => setMode('original')}
+          className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${
+            mode === 'original'
+              ? 'bg-white text-blue-700 shadow-sm'
+              : 'text-gray-600 hover:text-gray-800'
+          }`}
+        >
+          简单问题模式
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode('os')}
+          className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${
+            mode === 'os'
+              ? 'bg-white text-blue-700 shadow-sm'
+              : 'text-gray-600 hover:text-gray-800'
+          }`}
+        >
+          操作系统实验模式
+        </button>
+      </div>
+
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">原始作业</label>
-          <textarea
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            placeholder="例如：给定两个字符串形式输入的整数..."
-            className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 h-24"
-            required
+        {mode === 'original' ? (
+          <OriginalStartForm
+            question={question}
+            setQuestion={setQuestion}
+            answer={answer}
+            setAnswer={setAnswer}
+            studentId={studentId}
+            setStudentId={setStudentId}
+            disabled={loading}
           />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">提交的结果</label>
-          <textarea
-            value={answer}
-            onChange={(e) => setAnswer(e.target.value)}
-            placeholder="在此输入您对该问题的详细回答..."
-            className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 h-48"
-            required
+        ) : (
+          <OSStartForm
+            requirement={requirement}
+            setRequirement={setRequirement}
+            beforeFile={beforeFile}
+            setBeforeFile={setBeforeFile}
+            afterFile={afterFile}
+            setAfterFile={setAfterFile}
+            studentId={osStudentId}
+            setStudentId={setOsStudentId}
+            disabled={loading}
           />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">学生ID</label>
-          <input
-            type="text"
-            value={studentId}
-            onChange={(e) => setStudentId(e.target.value)}
-            placeholder="例如：student_001"
-            className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
+        )}
 
         <button
           type="submit"
-          disabled={loading || !question.trim() || !answer.trim()}
+          disabled={isSubmitDisabled}
           className="w-full bg-blue-600 text-white py-3 rounded-md hover:bg-blue-700 disabled:bg-gray-400 transition-colors font-medium"
         >
           {loading ? '生成测试问题中...' : '提交并生成测试问题'}
@@ -398,7 +595,7 @@ const ResultPhase: React.FC<{ result: FinalEvaluationResult }> = ({ result }) =>
   );
 };
 
-// ==================== 语音口试组件（修复计时逻辑版）====================
+// ==================== 语音口试组件 ====================
 type OralExamPhase = 'prepare' | 'connecting' | 'examining' | 'grading' | 'result';
 
 const OralExamination: React.FC = () => {
@@ -437,7 +634,6 @@ const OralExamination: React.FC = () => {
   const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const autoStopTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // 初始化音频上下文
   const initAudioContext = useCallback(async () => {
     if (!audioContextRef.current) {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
@@ -454,7 +650,6 @@ const OralExamination: React.FC = () => {
     return true;
   }, []);
 
-  // 停止当前播放
   const stopCurrentPlayback = useCallback(() => {
     currentAudioIdRef.current++;
     if (currentSourceRef.current) {
@@ -468,7 +663,6 @@ const OralExamination: React.FC = () => {
     setIsExaminerSpeaking(false);
   }, []);
 
-  // 播放音频Buffer
   const playAudioBuffer = useCallback(async (arrayBuffer: ArrayBuffer) => {
     if (!audioContextRef.current) await initAudioContext();
     const ctx = audioContextRef.current!;
@@ -489,7 +683,6 @@ const OralExamination: React.FC = () => {
         playLockRef.current = false;
         setIsExaminerSpeaking(false);
         setIsWaitingForAnswer(true);
-        // 【修复】考官说完话后开始静默计时（等待学生回答）
         startSilenceTimer();
       };
       source.start(0);
@@ -500,20 +693,17 @@ const OralExamination: React.FC = () => {
     }
   }, [initAudioContext]);
 
-  // 【核心修复】静默计时器 - 只在完全静默时计时
   const startSilenceTimer = useCallback(() => {
-    // 清除旧计时器
     stopSilenceTimer();
     setSilenceDuration(0);
     setTimeoutLevel(0);
     
-    // 开始新的计时
     silenceTimerRef.current = setInterval(() => {
       setSilenceDuration(prev => {
         const next = prev + 1;
-        if (next >= 75) setTimeoutLevel(3);
-        else if (next >= 50) setTimeoutLevel(2);
-        else if (next >= 25) setTimeoutLevel(1);
+        if (next >= 240) setTimeoutLevel(3);
+        else if (next >= 180) setTimeoutLevel(2);
+        else if (next >= 120) setTimeoutLevel(1);
         return next;
       });
     }, 1000);
@@ -526,7 +716,6 @@ const OralExamination: React.FC = () => {
     }
   }, []);
 
-  // 录音计时器
   const startRecordingTimer = useCallback(() => {
     stopRecordingTimer();
     setRecordingProgress(0);
@@ -549,7 +738,65 @@ const OralExamination: React.FC = () => {
     }
   }, []);
 
-  // 切换录音状态
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      setIsProcessing(true);
+      clearAutoStopTimer();
+    }
+  }, [clearAutoStopTimer]);
+
+  const startRecording = useCallback(async () => {
+    const inited = await initAudioContext();
+    if (!inited) return;
+    
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true } 
+      });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+      
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+      
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const base64 = (reader.result as string).split(',')[1];
+            wsRef.current?.send(JSON.stringify({ type: 'audio_data', data: base64 }));
+            setIsProcessing(true);
+            setCurrentHint('识别中...');
+            startSilenceTimer();
+          };
+          reader.readAsDataURL(audioBlob);
+        }
+        stream.getTracks().forEach(track => track.stop());
+        stopRecordingTimer();
+        clearAutoStopTimer();
+      };
+      
+      mediaRecorder.start(100);
+      setIsRecording(true);
+      stopSilenceTimer();
+      startRecordingTimer();
+      
+      autoStopTimerRef.current = setTimeout(() => {
+        if (mediaRecorderRef.current?.state === 'recording') {
+          stopRecording();
+        }
+      }, 30000);
+      
+    } catch (err) {
+      alert('无法访问麦克风，请检查权限设置');
+    }
+  }, [initAudioContext, stopSilenceTimer, startRecordingTimer, clearAutoStopTimer, stopRecording]);
+
   const toggleRecording = useCallback(async () => {
     if (isRecording) {
       stopRecording();
@@ -567,79 +814,11 @@ const OralExamination: React.FC = () => {
     if (isProcessing) return;
     
     await startRecording();
-  }, [isRecording, isProcessing, isExaminerSpeaking, stopCurrentPlayback, stopRecording]);
+  }, [isRecording, isProcessing, isExaminerSpeaking, stopCurrentPlayback, stopRecording, startRecording]);
 
-  // 【核心修复】开始录音 - 停止静默计时（学生说话时不计时）
-  const startRecording = async () => {
-    const inited = await initAudioContext();
-    if (!inited) return;
-    
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true } 
-      });
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-      
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-      
-      // 【核心修复】录音停止时（学生说完话）开始静默计时
-      mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const base64 = (reader.result as string).split(',')[1];
-            wsRef.current?.send(JSON.stringify({ type: 'audio_data', data: base64 }));
-            setIsProcessing(true);
-            setCurrentHint('识别中...');
-            // 【修复】学生说完话，开始静默计时（等待考官回应）
-            startSilenceTimer();
-          };
-          reader.readAsDataURL(audioBlob);
-        }
-        stream.getTracks().forEach(track => track.stop());
-        stopRecordingTimer();
-        clearAutoStopTimer();
-      };
-      
-      mediaRecorder.start(100);
-      setIsRecording(true);
-      // 【核心修复】学生开始说话，停止静默计时
-      stopSilenceTimer();
-      startRecordingTimer();
-      
-      // 30秒自动停止
-      autoStopTimerRef.current = setTimeout(() => {
-        if (mediaRecorderRef.current?.state === 'recording') {
-          stopRecording();
-        }
-      }, 30000);
-      
-    } catch (err) {
-      alert('无法访问麦克风，请检查权限设置');
-    }
-  };
-
-  // 停止录音
-  const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current?.state === 'recording') {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      setIsProcessing(true);
-      clearAutoStopTimer();
-      // 注意：静默计时在 onstop 回调中开始，这里不重复启动
-    }
-  }, [clearAutoStopTimer]);
-
-  // 【核心修复】WebSocket消息处理 - 严格控制计时时机
   const handleWebSocketMessage = useCallback(async (data: any) => {
     if (data instanceof ArrayBuffer || data instanceof Blob) {
       const arrayBuffer = data instanceof Blob ? await data.arrayBuffer() : data;
-      // 收到音频数据（考官开始说话），停止静默计时
       stopSilenceTimer();
       await playAudioBuffer(arrayBuffer);
       return;
@@ -649,7 +828,6 @@ const OralExamination: React.FC = () => {
     
     switch (msg.type) {
       case 'examiner_typing':
-        // 考官正在生成问题（思考中），不计时（保持静默或等待状态）
         setDialogueHistory(prev => {
           if (prev.length > 0 && prev[prev.length - 1].role === 'examiner' && prev[prev.length - 1].isTyping) {
             return prev;
@@ -667,7 +845,6 @@ const OralExamination: React.FC = () => {
         break;
       
       case 'examiner_response':
-        // 考官文字回复已生成，但还没开始语音
         setDialogueHistory(prev => {
           const newHistory = [...prev];
           if (newHistory.length > 0 && newHistory[newHistory.length - 1].isTyping) {
@@ -698,12 +875,10 @@ const OralExamination: React.FC = () => {
         setCurrentHint(msg.has_code ? `💻 ${hints[msg.response_type] || '考官展示代码'}` : (hints[msg.response_type] || '考官提问中'));
         
         setIsWaitingForAnswer(false);
-        // 考官生成文字后，即将开始语音，不计时（等待audio_start）
         stopSilenceTimer();
         break;
         
       case 'audio_start':
-        // 【核心修复】考官开始说话，确保停止静默计时
         setIsExaminerSpeaking(true);
         setIsWaitingForAnswer(false);
         stopSilenceTimer();
@@ -714,14 +889,12 @@ const OralExamination: React.FC = () => {
         break;
         
       case 'audio_end':
-        // 【核心修复】考官说完话，开始静默计时（已在playAudioBuffer的onended中处理，这里双重保险）
         setIsExaminerSpeaking(false);
         setIsWaitingForAnswer(true);
         startSilenceTimer();
         break;
       
       case 'listening':
-        // 【核心修复】考官等待回答，开始静默计时
         setIsProcessing(false);
         setCurrentHint('等待你的回答...');
         setIsWaitingForAnswer(true);
@@ -731,33 +904,27 @@ const OralExamination: React.FC = () => {
         break;
         
       case 'input_ready':
-        // 【核心修复】系统就绪（如识别失败后恢复），开始静默计时
         setIsProcessing(false);
         setCurrentHint(msg.message || '请回答');
         startSilenceTimer();
         break;
         
       case 'processing':
-        // 系统处理中（语音识别中），不计时（等待transcription）
         setIsProcessing(true);
         setCurrentHint('识别中...');
-        // 保持静默计时继续（学生在等待识别结果）
         break;
         
       case 'transcription':
-        // 【核心修复】显示学生回答后，继续静默计时（等待考官回应）
         setDialogueHistory(prev => [...prev, {
           role: 'student',
           text: msg.text,
           type: 'answer',
           timestamp: new Date().toISOString()
         }]);
-        // 识别完成，继续计时直到考官回应
         break;
         
       case 'silence_reminder':
       case 'timeout_reminder':
-        // 静默提醒，更新UI但不改变计时状态
         setCurrentHint(msg.message);
         setTimeoutLevel(msg.level || 1);
         setDialogueHistory(prev => [...prev, {
@@ -790,18 +957,15 @@ const OralExamination: React.FC = () => {
         stopCurrentPlayback();
         setIsProcessing(false);
         setCurrentHint('已暂停');
-        // 中断后处于不确定状态，不自动开始计时，等待考官响应
         break;
         
       case 'error':
         setCurrentHint('错误: ' + msg.message);
         setIsProcessing(false);
-        // 出错后也不自动计时，等待明确的状态转换
         break;
     }
   }, [evalId, isRecording, playAudioBuffer, stopCurrentPlayback, stopRecording, startSilenceTimer, stopSilenceTimer]);
 
-  // WebSocket连接
   const connectWebSocket = useCallback((url: string, id: string) => {
     setConnectionStatus('connecting');
     const ws = new WebSocket(url);
@@ -814,10 +978,9 @@ const OralExamination: React.FC = () => {
       ws.send(JSON.stringify({ 
         type: 'start_exam',
         timeout_strategy: 'prompt',
-        silence_thresholds: [25, 50, 75]
+        silence_thresholds: [120, 180, 240]
       }));
       setCurrentHint('连接成功，考官准备中...');
-      // 初始状态不计时，等待考官第一个问题
     };
     
     ws.onmessage = async (event) => {
@@ -897,7 +1060,6 @@ const OralExamination: React.FC = () => {
     }
   };
 
-  // 清理函数
   useEffect(() => {
     return () => {
       stopSilenceTimer();
@@ -907,7 +1069,6 @@ const OralExamination: React.FC = () => {
     };
   }, [stopSilenceTimer, stopRecordingTimer, clearAutoStopTimer]);
 
-  // 键盘快捷键
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.code === 'Space' && phase === 'examining' && !isProcessing && !isExaminerSpeaking) {
@@ -920,10 +1081,8 @@ const OralExamination: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [phase, isProcessing, isExaminerSpeaking, isRecording, toggleRecording]);
 
-  // 渲染左侧语音面板
   const renderVoicePanel = () => (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col items-center h-fit sticky top-6">
-      {/* 状态栏 */}
       <div className="w-full flex justify-between items-center mb-6 pb-4 border-b border-gray-100">
         <div className="flex items-center gap-2">
           <div className={`w-2.5 h-2.5 rounded-full ${connectionStatus === 'connected' ? 'bg-green-500 shadow-[0_0_0_3px_rgba(16,185,129,0.2)]' : 'bg-red-500'}`}></div>
@@ -939,39 +1098,35 @@ const OralExamination: React.FC = () => {
         </button>
       </div>
 
-      {/* 考官头像 */}
       <div className={`w-24 h-24 rounded-full flex items-center justify-center text-4xl mb-5 transition-all ${
         isExaminerSpeaking ? 'bg-indigo-50 border-indigo-500 animate-pulse' : isWaitingForAnswer ? 'bg-amber-50 border-amber-400' : 'bg-gray-50 border-gray-200'
       } border-2`}>
         {isExaminerSpeaking ? '🗣️' : isWaitingForAnswer ? '⏳' : '✋'}
       </div>
 
-      {/* 提示文字 */}
       <p className="text-base font-medium text-gray-700 mb-6 text-center min-h-[3rem] leading-snug px-2">
         {currentHint || '准备就绪'}
       </p>
 
-      {/* 【核心修复】静默进度条 - 只在静默时显示 */}
       {(isWaitingForAnswer && !isRecording && !isProcessing && !isExaminerSpeaking) && (
         <div className="w-full mb-6">
           <div className="flex justify-between text-xs text-gray-500 mb-1 font-medium">
             <span className={timeoutLevel > 0 ? 'text-red-600' : ''}>等待回答计时</span>
-            <span className={timeoutLevel > 0 ? 'text-red-600' : ''}>{silenceDuration}秒 / 75秒</span>
+            <span className={timeoutLevel > 0 ? 'text-red-600' : ''}>{silenceDuration}秒 / 240秒</span>
           </div>
           <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
             <div className={`h-full transition-all duration-1000 rounded-full ${
               timeoutLevel === 0 ? 'bg-green-500' : timeoutLevel === 1 ? 'bg-yellow-500' : timeoutLevel === 2 ? 'bg-orange-500' : 'bg-red-500'
-            }`} style={{ width: `${Math.min((silenceDuration / 75) * 100, 100)}%` }}></div>
+            }`} style={{ width: `${Math.min((silenceDuration / 240) * 100, 100)}%` }}></div>
           </div>
           <div className="flex justify-between text-[10px] text-gray-400 mt-1 font-medium">
-            <span>25秒</span>
-            <span>50秒</span>
-            <span>75秒</span>
+            <span>120秒</span>
+            <span>180秒</span>
+            <span>240秒</span>
           </div>
         </div>
       )}
 
-      {/* 录音按钮 */}
       <div className="relative mb-3">
         <button
           onClick={toggleRecording}
@@ -994,13 +1149,11 @@ const OralExamination: React.FC = () => {
             </svg>
           )}
           
-          {/* 录音进度圆环 */}
           {isRecording && (
             <div className="absolute -inset-2 rounded-full border-4 border-gray-200 border-t-indigo-600 animate-spin" style={{ animationDuration: '3s' }} />
           )}
         </button>
         
-        {/* 录音时长显示 */}
         {isRecording && (
           <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-sm font-mono font-bold text-red-500">
             {formatTime(recordingProgress)} / 0:30
@@ -1008,7 +1161,6 @@ const OralExamination: React.FC = () => {
         )}
       </div>
 
-      {/* 按钮下方提示文字 */}
       <p className="text-sm text-gray-500 mt-4 text-center font-medium">
         {isRecording 
           ? '点击结束录音' 
@@ -1019,7 +1171,6 @@ const OralExamination: React.FC = () => {
               : '点击开始录音'}
       </p>
 
-      {/* 快捷指令 - 只在静默等待时显示 */}
       {(isWaitingForAnswer && !isRecording && !isProcessing && !isExaminerSpeaking) && (
         <div className="flex gap-2 justify-center mt-5 flex-wrap">
           {['请重复', '解释一下', '给点提示', '下一题'].map((cmd) => (
@@ -1030,7 +1181,7 @@ const OralExamination: React.FC = () => {
                   wsRef.current.send(JSON.stringify({ type: 'text_data', text: cmd }));
                   setIsProcessing(true);
                   setCurrentHint('考官思考中...');
-                  stopSilenceTimer(); // 发送快捷指令后停止计时（等待考官回应）
+                  stopSilenceTimer();
                 }
               }}
               className="px-3 py-1.5 rounded-full border border-gray-200 bg-white text-xs text-gray-700 hover:bg-gray-50 font-medium transition-colors shadow-sm"
@@ -1043,7 +1194,6 @@ const OralExamination: React.FC = () => {
     </div>
   );
 
-  // 渲染右侧对话面板
   const renderDialoguePanel = () => (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col h-[calc(100vh-140px)] min-h-[500px]">
       <h3 className="text-base font-semibold text-gray-900 mb-4 pb-3 border-b-2 border-gray-100 flex items-center justify-between">
@@ -1102,7 +1252,6 @@ const OralExamination: React.FC = () => {
     </div>
   );
 
-  // 渲染准备阶段
   if (phase === 'prepare') {
     return (
       <div className="max-w-2xl mx-auto">
@@ -1153,7 +1302,7 @@ const OralExamination: React.FC = () => {
               <ul className="list-disc list-inside space-y-1 text-xs">
                 <li>全程语音交互，考官通过语音提问，你通过语音回答</li>
                 <li>你可以随时说"请重复"、"解释一下"、"给点提示"或"下一题"</li>
-                <li>75秒未回答将触发超时提醒</li>
+                <li>60秒未回答将触发超时提醒</li>
                 <li>计时规则：只在双方都不说话时计时，说话时自动暂停</li>
                 <li>建议使用耳机以获得最佳体验</li>
               </ul>
@@ -1230,7 +1379,8 @@ const ExamEvaluationApp: React.FC = () => {
   const [examQuestions, setExamQuestions] = useState<ExamQuestionsResponse | null>(null);
   const [finalResult, setFinalResult] = useState<FinalEvaluationResult | null>(null);
 
-  const handleStart = async (data: StartEvaluationRequest) => {
+  // 原有模式提交
+  const handleStartOriginal = async (data: StartEvaluationRequest) => {
     setLoading(true);
     setError(null);
     try {
@@ -1240,6 +1390,22 @@ const ExamEvaluationApp: React.FC = () => {
       setPhase('exam');
     } catch (err: any) {
       setError(`启动评估失败: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // OS实验模式提交
+  const handleStartOS = async (formData: FormData) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await startOSEvaluation(formData);
+      setEvaluationId(response.evaluation_id);
+      setExamQuestions(response);
+      setPhase('exam');
+    } catch (err: any) {
+      setError(`启动OS实验评估失败: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -1294,7 +1460,13 @@ const ExamEvaluationApp: React.FC = () => {
 
         {examMode === 'text' ? (
           <>
-            {phase === 'start' && <StartPhase onStart={handleStart} loading={loading} />}
+            {phase === 'start' && (
+              <StartPhase 
+                onStartOriginal={handleStartOriginal} 
+                onStartOS={handleStartOS} 
+                loading={loading} 
+              />
+            )}
             {phase === 'exam' && examQuestions && (
               <ExamPhase
                 evaluationId={evaluationId}

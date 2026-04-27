@@ -1,6 +1,8 @@
 from database import KnowledgeBase
-from typing import List, Dict
+from typing import List, Dict, Optional
 import json
+import os
+
 
 class RAGAssistant:
     """基于知识库的问答助手"""
@@ -10,7 +12,7 @@ class RAGAssistant:
         
         self.kb = KnowledgeBase(
             persist_dir=self.persist_dir,  # 传入目录
-            collection_name="ucore_2025s"
+            collection_name="rcore_2025s"
         )
         
     def ask(self, question: str, top_k: int = 3) -> Dict:
@@ -39,13 +41,17 @@ class RAGAssistant:
     
     def _build_context(self, contexts: List[Dict]) -> str:
         """构建上下文"""
+        if not contexts:
+            return "（未找到相关资料）"
+        
         parts = []
         for i, ctx in enumerate(contexts, 1):
             source = ctx["metadata"].get("source", "未知")
             title = ctx["metadata"].get("title", "未命名")
+            score = ctx.get("relevance_score", 0)
             parts.append(
                 f"[参考 {i}] 来源: {source} | 标题: {title}\n"
-                f"相关度: {ctx['relevance_score']}\n"
+                f"相关度: {score:.4f}\n"
                 f"内容: {ctx['content'][:800]}...\n"
             )
         return "\n---\n".join(parts)
@@ -57,7 +63,12 @@ class RAGAssistant:
 
 # 简单的命令行交互
 def interactive_mode():
-    assistant = RAGAssistant()
+    import sys
+    
+    # 支持命令行参数指定目录
+    persist_dir = sys.argv[1] if len(sys.argv) > 1 else None
+    
+    assistant = RAGAssistant(persist_dir=persist_dir)
     print("=" * 50)
     print("uCore Tutorial 知识库查询系统")
     print("=" * 50)
@@ -65,19 +76,33 @@ def interactive_mode():
     print("\n输入问题（或 'quit' 退出）：")
     
     while True:
-        question = input("\n> ").strip()
-        if question.lower() in ['quit', 'exit', 'q']:
+        try:
+            question = input("\n> ").strip()
+            if question.lower() in ['quit', 'exit', 'q']:
+                break
+            if not question:
+                continue
+            
+            result = assistant.ask(question)
+            
+            if not result["contexts"]:
+                print("⚠️ 未找到相关知识，请检查知识库是否已构建。")
+                continue
+            
+            print(f"\n📚 检索到 {len(result['contexts'])} 条相关知识：")
+            for ctx in result["contexts"]:
+                meta = ctx["metadata"]
+                print(f"\n  [{meta.get('title', 'N/A')}] "
+                      f"相关度: {ctx['relevance_score']:.4f}")
+                print(f"  内容预览: {ctx['content'][:200]}...")
+            
+            print(f"\n📝 可用于 LLM 的 Prompt 已生成（长度: {len(result['prompt_for_llm'])} 字符）")
+        
+        except KeyboardInterrupt:
+            print("\n\n再见！")
             break
-        
-        result = assistant.ask(question)
-        print(f"\n📚 检索到 {len(result['contexts'])} 条相关知识：")
-        for ctx in result['contexts']:
-            meta = ctx['metadata']
-            print(f"\n  [{meta.get('title', 'N/A')}] "
-                  f"相关度: {ctx['relevance_score']}")
-            print(f"  内容预览: {ctx['content'][:200]}...")
-        
-        print(f"\n📝 可用于 LLM 的 Prompt 已生成（长度: {len(result['prompt_for_llm'])} 字符）")
+        except Exception as e:
+            print(f"❌ 错误: {e}")
 
 if __name__ == "__main__":
     interactive_mode()

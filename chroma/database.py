@@ -2,10 +2,15 @@ import chromadb
 from chromadb.config import Settings
 from typing import List, Dict, Optional
 import os
+import glob
 
-# 设置 HuggingFace 国内镜像
+# 设置 HuggingFace 国内镜像（保留，但离线模式下不生效）
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+
+# ========== 关键：强制离线模式，避免联网检查 ==========
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
 # 尝试两种导入方式
 try:
@@ -53,6 +58,39 @@ MODEL_DIMENSIONS = {
 }
 
 
+def _find_local_model_path(model_name: str, cache_dir: Optional[str] = None) -> str:
+    """
+    根据模型名查找本地 HuggingFace 缓存路径。
+    如果找到本地 snapshot，返回绝对路径；否则返回原模型名。
+    """
+    if cache_dir is None:
+        cache_dir = os.path.expanduser("~/.cache/huggingface/hub")
+    
+    # HuggingFace Hub 的目录命名规则：models--{org}--{model}
+    model_dir_name = f"models--{model_name.replace('/', '--')}"
+    model_dir = os.path.join(cache_dir, model_dir_name)
+    
+    if not os.path.isdir(model_dir):
+        return model_name
+    
+    snapshots_dir = os.path.join(model_dir, "snapshots")
+    if not os.path.isdir(snapshots_dir):
+        return model_name
+    
+    snapshots = sorted(os.listdir(snapshots_dir))
+    if not snapshots:
+        return model_name
+    
+    # 使用最新的 snapshot
+    local_path = os.path.join(snapshots_dir, snapshots[-1])
+    # 验证目录里确实有模型文件（config.json 或 pytorch_model.bin 等）
+    if any(os.path.exists(os.path.join(local_path, f)) for f in ["config.json", "pytorch_model.bin", "model.safetensors"]):
+        print(f"[KB] 使用本地模型路径: {local_path}")
+        return local_path
+    
+    return model_name
+
+
 class KnowledgeBase:
     """Chroma 知识库管理 - 支持指定目录"""
     
@@ -76,28 +114,54 @@ class KnowledgeBase:
         print(f"[KB] 初始化知识库")
         print(f"[KB] 存储目录: {os.path.abspath(self.persist_dir)}")
         print(f"[KB] 集合名称: {self.collection_name}")
-        print(f"[KB] 使用 HuggingFace 镜像: {os.environ.get('HF_ENDPOINT', '默认')}")
+        print(f"[KB] 离线模式: HF_HUB_OFFLINE={os.environ.get('HF_HUB_OFFLINE')}")
+        
+        # 尝试定位本地模型路径（避免联网）
+        local_model_path = _find_local_model_path(self.embedding_model_name)
         
         # 初始化嵌入模型
         print(f"[KB] 加载嵌入模型: {self.embedding_model_name}")
-        print(f"[KB] 首次下载可能需要几分钟...")
+        if local_model_path != self.embedding_model_name:
+            print(f"[KB] 本地缓存已找到，直接加载本地文件...")
+        else:
+            print(f"[KB] 未找到本地缓存，将尝试从网络下载（当前处于离线模式，可能会失败）...")
         
         try:
             self.embeddings = HuggingFaceEmbeddings(
-                model_name=self.embedding_model_name,
-                model_kwargs={"device": "cpu"},
-                encode_kwargs={"normalize_embeddings": True},
+                model_name=local_model_path,
                 cache_folder=os.path.expanduser("~/.cache/huggingface/hub"),
+                model_kwargs={
+                    "device": "cpu",
+                    "local_files_only": True,  # 强制使用本地文件，不联网
+                },
+                encode_kwargs={"normalize_embeddings": True},
             )
             print(f"[KB] ✓ 模型加载成功")
         except Exception as e:
-            print(f"[KB] ✗ 模型加载失败: {e}")
-            print(f"[KB] 回退到备用模型...")
-            self.embeddings = HuggingFaceEmbeddings(
-                model_name="BAAI/bge-small-zh-v1.5",
-                model_kwargs={"device": "cpu"},
-            )
-            self.embedding_model_name = "BAAI/bge-small-zh-v1.5"
+            print(f"[KB] ✗ 主模型加载失败: {e}")
+            print(f"[KB] 尝试回退到备用模型（同样本地加载）...")
+            
+            fallback_model = "BAAI/bge-small-zh-v1.5"
+            fallback_local_path = _find_local_model_path(fallback_model)
+            
+            try:
+                self.embeddings = HuggingFaceEmbeddings(
+                    model_name=fallback_local_path,
+                    cache_folder=os.path.expanduser("~/.cache/huggingface/hub"),
+                    model_kwargs={
+                        "device": "cpu",
+                        "local_files_only": True,
+                    },
+                    encode_kwargs={"normalize_embeddings": True},
+                )
+                self.embedding_model_name = fallback_model
+                print(f"[KB] ✓ 备用模型加载成功: {fallback_model}")
+            except Exception as e2:
+                print(f"[KB] ✗ 备用模型也加载失败: {e2}")
+                raise RuntimeError(
+                    "无法加载任何嵌入模型。请确保本地已缓存模型，或临时联网下载。"
+                    f"\n查找路径: {os.path.expanduser('~/.cache/huggingface/hub')}"
+                ) from e2
         
         # 获取当前模型的维度
         self.expected_dim = MODEL_DIMENSIONS.get(self.embedding_model_name, 1024)

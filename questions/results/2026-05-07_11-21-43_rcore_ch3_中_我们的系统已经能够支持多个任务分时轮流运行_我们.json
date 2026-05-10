@@ -1,0 +1,101 @@
+{
+  "generated_at": "2026-05-07T11:21:43.191643",
+  "os_type": "rcore",
+  "experiment_requirement": "ch3 中，我们的系统已经能够支持多个任务分时轮流运行，我们希望引入一个新的系统调用 sys_trace （syscall ID: 410）用来追踪当前任务系统调用的历史信息、并进行任务内存的读写。定义如下：\r\n\r\nint sys_trace(int trace_request, unsigned long id, uint8_t data);\r\nsyscall ID: 410\r\n\r\n调用规范：\r\n这个系统调用有三种功能，根据 trace_request 的值不同，执行不同的操作：\r\n\r\n如果 trace_request 为 0，则 id 应被视作 uint8_t * ，表示读取当前任务 id 地址处一个字节的无符号整数值。此时应忽略 data 参数。返回值为 id 地址处的值。\r\n\r\n如果 trace_request 为 1，则 id 应被视作 uint8_t * ，表示写入 data （作为 uint8_t，即只考虑最低位的一个字节）到该用户程序 id 地址处。返回值应为0。\r\n\r\n如果 trace_request 为 2，表示查询当前任务调用编号为 id 的系统调用的次数，返回值为这个调用次数。 本次调用也计入统计 。\r\n\r\n否则，忽略其他参数，返回值为 -1。\r\n\r\n说明：\r\nuint8_t 是C语言中的标准类型，表示一个无符号的8位整数。在代码中你可能需要使用 uint8 替代。\r\n\r\n你可能会注意到，这个调用的读写并不安全，使用不当可能导致崩溃。这是因为在下一章节实现地址空间之前，系统中缺乏隔离机制。所以我们 不要求你实现安全检查机制，只需通过测试用例即可 。\r\n\r\n你还可能注意到，这个系统调用读写本任务内存的功能并不是很有用。这是因为作业的灵感来源 syscall 主要依靠 trace 功能追踪其他任务的信息，但在本章节我们还没有进程、线程等概念，所以简化了操作，只要求追踪自身的信息。",
+  "experiment_title": "ch3 中，我们的系统已经能够支持多个任务分时轮流运行，我们希望引入一个新的系统调用 sys_tra...",
+  "summary": "基于1个修改文件和0个新增文件生成4个问题（OS类型: rcore, RAG检索: 4次）",
+  "total_questions": 4,
+  "questions": [
+    {
+      "id": 1,
+      "category": "concept",
+      "question": "请看这段内存访问的实现代码：\n\n\n\n在 ch3 的架构中，内核与用户程序尚未实现地址空间隔离（即没有页表隔离机制）。请解释：**为什么这里的 `*(uint8_t *)id` 直接解引用能够访问到用户程序的内存？** 这种设计在后续章节（如 ch4 实现地址空间隔离后）会出现什么问题？如果要兼容后续的地址空间隔离，需要进行哪些关键修改？",
+      "rationale": "考察学生对 ch3 \"无隔离\"架构特点的理解，以及对直接物理地址访问与虚拟地址映射区别的掌握。区分\"代码现在能跑\"和\"为什么能跑\"的理解层次。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "uint64 sys_trace(int trace_request, unsigned long id, uint8_t data)\n{\n\tstruct proc *p = curr_proc();\n\tswitch (trace_request) {\n\tcase 0:\n\t\t/* 读取当前任务 id 地址处一个字节 */\n\t\treturn *(uint8_t *)id;\n\tcase 1:\n\t\t/* 写入 data 的最低位字节到 id 地址处 */\n\t\t*(uint8_t *)id = data;\n\t\treturn 0;\n\t}\n}"
+      ]
+    },
+    {
+      "id": 2,
+      "category": "implementation",
+      "question": "关于系统调用次数统计功能（trace_request=2），请看以下代码片段：\n\n\n\n实验要求明确指出 \"**本次调用也计入统计**\"。假设 `p->syscall_count` 数组的更新逻辑在 `syscall()` 函数中实现（即在分发到具体系统调用后统一增加计数），**这段代码存在什么逻辑缺陷？** 请指出正确的计数更新时机应该在哪里，并说明如果更新顺序错误会导致什么测试现象。",
+      "rationale": "考察学生对系统调用流程完整性的理解，特别是对\"副作用发生时机\"的敏感度。照搬代码的学生往往忽略\"本次调用计入\"这一细节要求。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "case 2:\n\t\t/* 查询当前任务调用编号为 id 的系统调用次数 */\n\t\tif (id < MAX_SYSCALL_NUM)\n\t\t\treturn p->syscall_count[id];\n\t\telse\n\t\t\treturn 0;"
+      ]
+    },
+    {
+      "id": 3,
+      "category": "debugging",
+      "question": "在 case 0 和 case 1 中，代码将 `id` 直接转换为指针进行解引用操作：\n\n\n\n实验说明中提到 \"**不要求你实现安全检查机制**\"。假设用户程序恶意或错误地传入了一个非法地址（如 `id = 0x0` 或指向内核关键数据结构的地址），**结合 ch3 无内存隔离的架构特性，会发生什么后果？** 如果后续章节（如 ch4/ch5）实现了地址空间隔离，这种\"不检查\"的设计会导致内核崩溃还是用户程序崩溃？请分析两种场景的差异。",
+      "rationale": "考察学生对内核稳定性与安全边界的理解，区分\"功能实现\"与\"鲁棒性设计\"的认知层次。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "case 0:\n\t\treturn *(uint8_t *)id;  // 直接读取用户指定地址\n\tcase 1:\n\t\t*(uint8_t *)id = data;  // 直接写入用户指定地址\n\t\treturn 0;"
+      ]
+    },
+    {
+      "id": 4,
+      "category": "understanding",
+      "question": "观察 `sys_trace` 的参数设计：`id` 在 case 0/1 中被解释为内存指针（`uint8_t *`），而在 case 2 中被解释为系统调用号索引（`unsigned long`）：\n\n\n\n这种\"一参多用\"的设计在操作系统接口中并不罕见（如 `ioctl`）。**请从系统调用设计的角度分析**：这种设计的优点和潜在风险是什么？特别是，在 case 0 中 `data` 参数被完全忽略，这种\"参数冗余\"是否符合系统调用设计的惯例？如果是你，会如何改进这个接口设计？",
+      "rationale": "考察学生对 OS 接口设计哲学的理解，区分\"完成功能\"和\"良好设计\"的能力，结合课程中提到的系统调用封装概念进行思考。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "uint64 sys_trace(int trace_request, unsigned long id, uint8_t data)\n{\n\tswitch (trace_request) {\n\tcase 0:\n\tcase 1:\n\t\t// id 作为指针使用\n\t\t*(uint8_t *)id = data;\n\tcase 2:\n\t\t// id 作为数组索引使用\n\t\tif (id < MAX_SYSCALL_NUM)\n\t\t\treturn p->syscall_count[id];\n\t}\n}"
+      ]
+    }
+  ],
+  "diff_summary": {
+    "added_files": [],
+    "deleted_files": [],
+    "modified_files": [
+      "os/syscall.c"
+    ],
+    "summary": "新增文件: 0个\n删除文件: 0个\n修改文件: 1个\n未变文件: 30个\n\n主要修改:\n  - os/syscall.c (变更行: 29行)"
+  },
+  "metadata": {
+    "diff_summary": "新增文件: 0个\n删除文件: 0个\n修改文件: 1个\n未变文件: 30个\n\n主要修改:\n  - os/syscall.c (变更行: 29行)",
+    "total_files": 62,
+    "raw_response": "## 问题1 [concept]\n\n请看这段内存访问的实现代码：\n\n<code>\nuint64 sys_trace(int trace_request, unsigned long id, uint8_t data)\n{\n\tstruct proc *p = curr_proc();\n\tswitch (trace_request) {\n\tcase 0:\n\t\t/* 读取当前任务 id 地址处一个字节 */\n\t\treturn *(uint8_t *)id;\n\tcase 1:\n\t\t/* 写入 data 的最低位字节到 id 地址处 */\n\t\t*(uint8_t *)id = data;\n\t\treturn 0;\n\t}\n}\n</code>\n\n在 ch3 的架构中，内核与用户程序尚未实现地址空间隔离（即没有页表隔离机制）。请解释：**为什么这里的 `*(uint8_t *)id` 直接解引用能够访问到用户程序的内存？** 这种设计在后续章节（如 ch4 实现地址空间隔离后）会出现什么问题？如果要兼容后续的地址空间隔离，需要进行哪些关键修改？\n\n**出题理由**: 考察学生对 ch3 \"无隔离\"架构特点的理解，以及对直接物理地址访问与虚拟地址映射区别的掌握。区分\"代码现在能跑\"和\"为什么能跑\"的理解层次。\n\n---\n\n## 问题2 [implementation]\n\n关于系统调用次数统计功能（trace_request=2），请看以下代码片段：\n\n<code>\n\tcase 2:\n\t\t/* 查询当前任务调用编号为 id 的系统调用次数 */\n\t\tif (id < MAX_SYSCALL_NUM)\n\t\t\treturn p->syscall_count[id];\n\t\telse\n\t\t\treturn 0;\n</code>\n\n实验要求明确指出 \"**本次调用也计入统计**\"。假设 `p->syscall_count` 数组的更新逻辑在 `syscall()` 函数中实现（即在分发到具体系统调用后统一增加计数），**这段代码存在什么逻辑缺陷？** 请指出正确的计数更新时机应该在哪里，并说明如果更新顺序错误会导致什么测试现象。\n\n**出题理由**: 考察学生对系统调用流程完整性的理解，特别是对\"副作用发生时机\"的敏感度。照搬代码的学生往往忽略\"本次调用计入\"这一细节要求。\n\n---\n\n## 问题3 [debugging]\n\n在 case 0 和 case 1 中，代码将 `id` 直接转换为指针进行解引用操作：\n\n<code>\n\tcase 0:\n\t\treturn *(uint8_t *)id;  // 直接读取用户指定地址\n\tcase 1:\n\t\t*(uint8_t *)id = data;  // 直接写入用户指定地址\n\t\treturn 0;\n</code>\n\n实验说明中提到 \"**不要求你实现安全检查机制**\"。假设用户程序恶意或错误地传入了一个非法地址（如 `id = 0x0` 或指向内核关键数据结构的地址），**结合 ch3 无内存隔离的架构特性，会发生什么后果？** 如果后续章节（如 ch4/ch5）实现了地址空间隔离，这种\"不检查\"的设计会导致内核崩溃还是用户程序崩溃？请分析两种场景的差异。\n\n**出题理由**: 考察学生对内核稳定性与安全边界的理解，区分\"功能实现\"与\"鲁棒性设计\"的认知层次。\n\n---\n\n## 问题4 [understanding]\n\n观察 `sys_trace` 的参数设计：`id` 在 case 0/1 中被解释为内存指针（`uint8_t *`），而在 case 2 中被解释为系统调用号索引（`unsigned long`）：\n\n<code>\nuint64 sys_trace(int trace_request, unsigned long id, uint8_t data)\n{\n\tswitch (trace_request) {\n\tcase 0:\n\tcase 1:\n\t\t// id 作为指针使用\n\t\t*(uint8_t *)id = data;\n\tcase 2:\n\t\t// id 作为数组索引使用\n\t\tif (id < MAX_SYSCALL_NUM)\n\t\t\treturn p->syscall_count[id];\n\t}\n}\n</code>\n\n这种\"一参多用\"的设计在操作系统接口中并不罕见（如 `ioctl`）。**请从系统调用设计的角度分析**：这种设计的优点和潜在风险是什么？特别是，在 case 0 中 `data` 参数被完全忽略，这种\"参数冗余\"是否符合系统调用设计的惯例？如果是你，会如何改进这个接口设计？\n\n**出题理由**: 考察学生对 OS 接口设计哲学的理解，区分\"完成功能\"和\"良好设计\"的能力，结合课程中提到的系统调用封装概念进行思考。\n\n---\n\n## 问题5 [implementation]\n\n根据课程知识库，ch3 实现了**多任务分时轮流运行**机制。`sys_trace` 中通过 `curr_proc()` 获取当前任务：\n\n<code>\nuint64 sys_trace(int trace_request, unsigned long id, uint8_t data)\n{\n\tstruct proc *p = curr_proc();\n\t// ... 使用 p 访问任务私有数据如 syscall_count\n}\n</code>\n\n结合课程资料中提到的\"任务管理器\"和\"任务切换\"机制，**请解释**：如果在 `sys_trace` 执行过程中（特别是执行 `case 2` 分支的数组访问期间）发生了**时钟中断导致的任务切换**，`p->syscall_count` 的访问是否安全？`curr_proc()` 返回的指针在切换后是否仍然有效？请从任务控制块（TCB）的生命周期和内核栈的角度分析。\n\n**出题理由**: 考察学生对并发执行和任务切换机制的理解，特别是对\"当前任务\"概念在多任务环境下的动态性认知，区分单任务思维与多任务思维。",
+    "context_length": 10336,
+    "use_kimi": true,
+    "os_type": "rcore",
+    "rag_enabled": true,
+    "rag_tool_calls": [
+      {
+        "tool": "search_by_lab",
+        "arguments": {
+          "lab_name": "ch3"
+        }
+      },
+      {
+        "tool": "search_by_code_symbol",
+        "arguments": {
+          "symbol_name": "curr_proc",
+          "context": "获取当前运行任务"
+        }
+      },
+      {
+        "tool": "search_by_code_symbol",
+        "arguments": {
+          "symbol_name": "proc",
+          "context": "struct proc 任务结构体，包含系统调用统计信息"
+        }
+      },
+      {
+        "tool": "search_os_concept",
+        "arguments": {
+          "concept": "系统调用",
+          "detail_level": "detailed"
+        }
+      }
+    ],
+    "rag_results_length": 8464
+  }
+}

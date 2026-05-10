@@ -1,0 +1,101 @@
+{
+  "generated_at": "2026-05-07T11:29:53.542417",
+  "os_type": "rcore",
+  "experiment_requirement": "ch3 中，我们的系统已经能够支持多个任务分时轮流运行，我们希望引入一个新的系统调用 sys_trace （syscall ID: 410）用来追踪当前任务系统调用的历史信息、并进行任务内存的读写。定义如下：\r\n\r\nint sys_trace(int trace_request, unsigned long id, uint8_t data);\r\nsyscall ID: 410\r\n\r\n调用规范：\r\n这个系统调用有三种功能，根据 trace_request 的值不同，执行不同的操作：\r\n\r\n如果 trace_request 为 0，则 id 应被视作 uint8_t * ，表示读取当前任务 id 地址处一个字节的无符号整数值。此时应忽略 data 参数。返回值为 id 地址处的值。\r\n\r\n如果 trace_request 为 1，则 id 应被视作 uint8_t * ，表示写入 data （作为 uint8_t，即只考虑最低位的一个字节）到该用户程序 id 地址处。返回值应为0。\r\n\r\n如果 trace_request 为 2，表示查询当前任务调用编号为 id 的系统调用的次数，返回值为这个调用次数。 本次调用也计入统计 。\r\n\r\n否则，忽略其他参数，返回值为 -1。\r\n\r\n说明：\r\nuint8_t 是C语言中的标准类型，表示一个无符号的8位整数。在代码中你可能需要使用 uint8 替代。\r\n\r\n你可能会注意到，这个调用的读写并不安全，使用不当可能导致崩溃。这是因为在下一章节实现地址空间之前，系统中缺乏隔离机制。所以我们 不要求你实现安全检查机制，只需通过测试用例即可 。\r\n\r\n你还可能注意到，这个系统调用读写本任务内存的功能并不是很有用。这是因为作业的灵感来源 syscall 主要依靠 trace 功能追踪其他任务的信息，但在本章节我们还没有进程、线程等概念，所以简化了操作，只要求追踪自身的信息。",
+  "experiment_title": "ch3 中，我们的系统已经能够支持多个任务分时轮流运行，我们希望引入一个新的系统调用 sys_tra...",
+  "summary": "基于1个修改文件和0个新增文件生成4个问题（OS类型: rcore, RAG检索: 4次）",
+  "total_questions": 4,
+  "questions": [
+    {
+      "id": 1,
+      "category": "concept",
+      "question": "实验说明中提到\"这个调用的读写并不安全，使用不当可能导致崩溃\"。请看你在 `sys_trace` 中对 `trace_request` 为 0 和 1 的处理代码：\n\n\n\n你直接将用户传入的 `id` 强制转换为指针并进行解引用操作。在 ch3 的实验环境中，为什么这种操作是危险的？请结合\"下一章节实现地址空间之前，系统中缺乏隔离机制\"这一背景，解释可能发生崩溃的场景。",
+      "rationale": "考察学生对操作系统内存隔离机制的理解，以及对内核直接操作用户态指针风险的认识，区分\"实现功能\"和\"安全实现\"的差异。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "case 0:\n    /* 读取当前任务 id 地址处一个字节 */\n    return *(uint8_t *)id;\ncase 1:\n    /* 写入 data 的最低位字节到 id 地址处 */\n    *(uint8_t *)id = data;\n    return 0;"
+      ]
+    },
+    {
+      "id": 2,
+      "category": "implementation",
+      "question": "对于 `trace_request` 为 2 的情况，你的实现如下：\n\n\n\n实验要求明确指出\"本次调用也计入统计\"。但从这段代码来看，你返回的是 `p->syscall_count[id]` 的当前值。请问：\n1. 如果当前调用就是 `sys_trace`（syscall ID 为 410），你确保这次调用已经被计入 `syscall_count` 了吗？\n2. 这个计数器通常应该在代码的哪个位置进行更新？请描述其调用时机和实现逻辑（无需写出具体代码，但需说明在系统调用处理流程中的位置）。",
+      "rationale": "考察学生对系统调用处理流程的整体理解，特别是统计功能需要在入口或出口处统一处理的机制，避免学生仅关注单个函数实现而忽略系统层面的逻辑。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "case 2:\n    /* 查询当前任务调用编号为 id 的系统调用次数 */\n    if (id < MAX_SYSCALL_NUM)\n        return p->syscall_count[id];\n    else\n        return 0;"
+      ]
+    },
+    {
+      "id": 3,
+      "category": "debugging",
+      "question": "继续看 `trace_request` 为 2 的处理逻辑：\n\n\n\n实验要求规定：\"如果 `trace_request` 不符合上述三种情况，忽略其他参数，返回值为 -1\"。然而，当 `id >= MAX_SYSCALL_NUM` 时，你的实现返回了 0 而不是 -1。请解释：\n1. 这种处理是否符合实验要求？为什么？\n2. 如果 `id` 是一个无效的系统调用编号，返回 0 表示\"调用了 0 次\"和返回 -1 表示\"参数错误\"，在语义上有什么本质区别？",
+      "rationale": "考察学生对 API 设计语义和边界条件处理的严谨性，区分\"查询结果为空\"和\"查询参数非法\"两种不同场景。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "case 2:\n    if (id < MAX_SYSCALL_NUM)\n        return p->syscall_count[id];\n    else\n        return 0;"
+      ]
+    },
+    {
+      "id": 4,
+      "category": "understanding",
+      "question": "在 `sys_trace` 的实现中，你通过 `curr_proc()` 获取当前进程：\n\n\n\n根据课程资料，ch3 实现了\"多个任务分时轮流运行\"。请解释：\n1. `curr_proc()` 是如何确定\"当前\"正在运行的是哪个任务的？这涉及到任务切换时的哪些机制？\n2. 在 ch3 的基于协作式/抢占式多任务（根据实际实现）的上下文中，如果 `sys_trace` 执行过程中发生了任务切换（中断/异常），`p` 指针的有效性如何保证？",
+      "rationale": "考察学生对 ch3 多任务调度核心机制的理解，以及对内核栈、任务上下文保存、内核态执行原子性等概念的掌握。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "uint64 sys_trace(int trace_request, unsigned long id, uint8_t data)\n{\n    struct proc *p = curr_proc();\n    // ...\n    case 2:\n        return p->syscall_count[id];\n}"
+      ]
+    }
+  ],
+  "diff_summary": {
+    "added_files": [],
+    "deleted_files": [],
+    "modified_files": [
+      "os/syscall.c"
+    ],
+    "summary": "新增文件: 0个\n删除文件: 0个\n修改文件: 1个\n未变文件: 30个\n\n主要修改:\n  - os/syscall.c (变更行: 29行)"
+  },
+  "metadata": {
+    "diff_summary": "新增文件: 0个\n删除文件: 0个\n修改文件: 1个\n未变文件: 30个\n\n主要修改:\n  - os/syscall.c (变更行: 29行)",
+    "total_files": 62,
+    "raw_response": "## 问题1 [concept]\n实验说明中提到\"这个调用的读写并不安全，使用不当可能导致崩溃\"。请看你在 `sys_trace` 中对 `trace_request` 为 0 和 1 的处理代码：\n\n<code>\ncase 0:\n    /* 读取当前任务 id 地址处一个字节 */\n    return *(uint8_t *)id;\ncase 1:\n    /* 写入 data 的最低位字节到 id 地址处 */\n    *(uint8_t *)id = data;\n    return 0;\n</code>\n\n你直接将用户传入的 `id` 强制转换为指针并进行解引用操作。在 ch3 的实验环境中，为什么这种操作是危险的？请结合\"下一章节实现地址空间之前，系统中缺乏隔离机制\"这一背景，解释可能发生崩溃的场景。\n\n**出题理由**: 考察学生对操作系统内存隔离机制的理解，以及对内核直接操作用户态指针风险的认识，区分\"实现功能\"和\"安全实现\"的差异。\n\n---\n\n## 问题2 [implementation]\n对于 `trace_request` 为 2 的情况，你的实现如下：\n\n<code>\ncase 2:\n    /* 查询当前任务调用编号为 id 的系统调用次数 */\n    if (id < MAX_SYSCALL_NUM)\n        return p->syscall_count[id];\n    else\n        return 0;\n</code>\n\n实验要求明确指出\"本次调用也计入统计\"。但从这段代码来看，你返回的是 `p->syscall_count[id]` 的当前值。请问：\n1. 如果当前调用就是 `sys_trace`（syscall ID 为 410），你确保这次调用已经被计入 `syscall_count` 了吗？\n2. 这个计数器通常应该在代码的哪个位置进行更新？请描述其调用时机和实现逻辑（无需写出具体代码，但需说明在系统调用处理流程中的位置）。\n\n**出题理由**: 考察学生对系统调用处理流程的整体理解，特别是统计功能需要在入口或出口处统一处理的机制，避免学生仅关注单个函数实现而忽略系统层面的逻辑。\n\n---\n\n## 问题3 [debugging]\n继续看 `trace_request` 为 2 的处理逻辑：\n\n<code>\ncase 2:\n    if (id < MAX_SYSCALL_NUM)\n        return p->syscall_count[id];\n    else\n        return 0;\n</code>\n\n实验要求规定：\"如果 `trace_request` 不符合上述三种情况，忽略其他参数，返回值为 -1\"。然而，当 `id >= MAX_SYSCALL_NUM` 时，你的实现返回了 0 而不是 -1。请解释：\n1. 这种处理是否符合实验要求？为什么？\n2. 如果 `id` 是一个无效的系统调用编号，返回 0 表示\"调用了 0 次\"和返回 -1 表示\"参数错误\"，在语义上有什么本质区别？\n\n**出题理由**: 考察学生对 API 设计语义和边界条件处理的严谨性，区分\"查询结果为空\"和\"查询参数非法\"两种不同场景。\n\n---\n\n## 问题4 [understanding]\n在 `sys_trace` 的实现中，你通过 `curr_proc()` 获取当前进程：\n\n<code>\nuint64 sys_trace(int trace_request, unsigned long id, uint8_t data)\n{\n    struct proc *p = curr_proc();\n    // ...\n    case 2:\n        return p->syscall_count[id];\n}\n</code>\n\n根据课程资料，ch3 实现了\"多个任务分时轮流运行\"。请解释：\n1. `curr_proc()` 是如何确定\"当前\"正在运行的是哪个任务的？这涉及到任务切换时的哪些机制？\n2. 在 ch3 的基于协作式/抢占式多任务（根据实际实现）的上下文中，如果 `sys_trace` 执行过程中发生了任务切换（中断/异常），`p` 指针的有效性如何保证？\n\n**出题理由**: 考察学生对 ch3 多任务调度核心机制的理解，以及对内核栈、任务上下文保存、内核态执行原子性等概念的掌握。\n\n---\n\n## 问题5 [optimization]\n你的代码中涉及多处类型转换：\n\n<code>\nuint64 sys_trace(int trace_request, unsigned long id, uint8_t data)\n{\n    // ...\n    case 0:\n        return *(uint8_t *)id;  // unsigned long -> uint8_t*\n    case 1:\n        *(uint8_t *)id = data;  // unsigned long -> uint8_t*\n</code>\n\n考虑到 RISC-V 64 架构（假设实验环境）中 `unsigned long` 是 64 位，而 `uint8_t *` 也是 64 位指针：\n1. 这种转换在 64 位系统上是否总是安全的？如果实验被移植到 32 位架构（如 RV32），可能会遇到什么问题？\n2. 如果用户恶意传入一个非对齐的地址（如 `id = 0x1001`），你的直接解引用操作会发生什么？虽然实验不要求安全检查，但从硬件层面解释可能发生的异常类型。\n\n**出题理由**: 考察学生对不同架构下数据模型差异的理解，以及对内存对齐、总线错误等底层硬件机制的认识，培养跨平台编程意识。",
+    "context_length": 10999,
+    "use_kimi": true,
+    "os_type": "rcore",
+    "rag_enabled": true,
+    "rag_tool_calls": [
+      {
+        "tool": "search_by_lab",
+        "arguments": {
+          "lab_name": "ch3"
+        }
+      },
+      {
+        "tool": "search_by_code_symbol",
+        "arguments": {
+          "symbol_name": "sys_trace",
+          "context": "系统调用追踪与内存读写"
+        }
+      },
+      {
+        "tool": "search_os_concept",
+        "arguments": {
+          "concept": "系统调用",
+          "detail_level": "detailed"
+        }
+      },
+      {
+        "tool": "search_by_code_symbol",
+        "arguments": {
+          "symbol_name": "curr_proc",
+          "context": "获取当前进程/任务"
+        }
+      }
+    ],
+    "rag_results_length": 9127
+  }
+}

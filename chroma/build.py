@@ -2,7 +2,7 @@
 from extractor import batch_extract
 from database import KnowledgeBase
 
-# 1. 提取所有 HTML 内容
+# # 1. 提取所有 HTML 内容
 # sections = batch_extract("/home/gsk/rCore-Tutorial-Guide-2025S")
 
 # # # 2. 构建知识库

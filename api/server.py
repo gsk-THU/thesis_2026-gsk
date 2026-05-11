@@ -112,6 +112,7 @@ class QuestionScoreDetail(BaseModel):
     chairman_feedback: str = Field(..., description="委员会主席对该问题的详细评语")
     teacher_scores: List[Dict] = Field(..., description="各教师模型独立评分列表")
     consensus_stats: Dict[str, Any] = Field(..., description="该问题的评分一致性统计")
+    reevaluation: Dict[str, Any] = Field(default_factory=dict, description="离群值检测与自动重评记录")
 
 
 class OverallAssessment(BaseModel):
@@ -355,7 +356,11 @@ async def run_council_on_qa_pairs(question_answer_pairs: List[Dict[str, str]]) -
                 {"model": r["model"], "score": r.get("score")}
                 for r in stage1_results
             ],
-            consensus_stats=metadata.get("consensus_stats", {})
+            consensus_stats=metadata.get("consensus_stats", {}),
+            reevaluation={
+                "trigger_report": metadata.get("reevaluation_triggers", {}),
+                "results": metadata.get("reevaluation_results", [])
+            }
         )
         exam_scores_details.append(detail)
 
@@ -815,7 +820,11 @@ async def complete_evaluation(evaluation_id: str, request: SubmitExamAnswersRequ
                     {"model": r["model"], "score": r.get("score")}
                     for r in stage1_results
                 ],
-                consensus_stats=metadata.get("consensus_stats", {})
+                consensus_stats=metadata.get("consensus_stats", {}),
+                reevaluation={
+                    "trigger_report": metadata.get("reevaluation_triggers", {}),
+                    "results": metadata.get("reevaluation_results", [])
+                }
             )
             exam_scores_details.append(detail)
 

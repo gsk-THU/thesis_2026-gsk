@@ -1,0 +1,7 @@
+在rCore里，我主要是通过时钟中断来实现分时轮转的。每次trap_handler捕获到TimerInterrupt时，会调用suspend_current_and_run_next函数。每个任务有个时间片tick，每次中断减一，减到零或者任务主动yield时，就把当前任务丢回就绪队列尾部，然后调度器从队列头取下一个任务执行。
+
+上下文切换这块，是通过__switch汇编函数做的。切换时，内核会把当前任务的ra、s0-s11这些callee-saved寄存器保存到TaskContext结构体里，存到对应的任务控制块中。然后从下一个任务的TaskContext恢复寄存器，这样CPU就切换到新任务的栈和执行流继续执行。
+
+不过具体哪些寄存器必须保存...我好像记得主要是callee-saved的？因为调用者保存的应该在中断入口已经存到TrapContext里了。任务切换时其实是两次上下文切换？一次是用户态到内核态保存TrapContext，然后是内核态的任务切换保存TaskContext...
+
+还有那个idle_task，我代码里好像有但是没怎么深入理解它的具体作用，可能是用来在没有就绪任务时让CPU等待的？

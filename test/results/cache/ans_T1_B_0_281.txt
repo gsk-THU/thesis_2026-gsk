@@ -1,0 +1,3 @@
+TrapContext是在`trap.S`里的`__alltraps`汇编段保存的。中断发生时，`__alltraps`会把用户的通用寄存器、`sepc`、`sstatus`等压入内核栈上的TrapContext结构中。
+
+从trap返回用户态时必须恢复TrapContext，因为要回到中断前的用户执行现场。但任务切换是内核态内部的行为，此时用户上下文已安全保存在内核栈的TrapContext里。TaskContext只包含`ra`和`s0-s11`等callee-saved寄存器，用于保存内核任务的执行状态，它并不包含用户态寄存器信息，也无法替代TrapContext。如果在任务切换时恢复TrapContext，会破坏当前trap处理的流程。因此任务切换只切换内核执行流，等到最终`__restore`时才统一恢复TrapContext返回用户态。

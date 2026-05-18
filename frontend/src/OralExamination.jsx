@@ -170,7 +170,7 @@ export default function OralExamination() {
   const recordingTimerRef = useRef(null);
   const autoStopTimerRef = useRef(null); // 【新增】自动停止定时器
   
-  const silenceThresholds = [25, 50, 75];
+  const silenceThresholds = [50, 100, 150];
 
   // 初始化音频上下文
   const initAudioContext = useCallback(async () => {
@@ -725,7 +725,7 @@ export default function OralExamination() {
             marginBottom: '4px'
           }}>
             <span>等待回答计时</span>
-            <span>{silenceDuration}秒 / 75秒</span>
+            <span>{silenceDuration}秒 / 150秒</span>
           </div>
           <div style={{
             width: '100%',
@@ -736,7 +736,7 @@ export default function OralExamination() {
           }}>
             <div style={{
               height: '100%',
-              width: `${Math.min((silenceDuration / 75) * 100, 100)}%`,
+              width: `${Math.min((silenceDuration / 150) * 100, 100)}%`,
               backgroundColor: timeoutLevel === 0 ? '#10b981' : timeoutLevel === 1 ? '#f59e0b' : timeoutLevel === 2 ? '#f97316' : '#dc2626',
               transition: 'all 0.3s ease'
             }}></div>

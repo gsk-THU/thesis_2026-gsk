@@ -1,0 +1,101 @@
+{
+  "generated_at": "2026-05-11T23:05:28.251193",
+  "os_type": "ucore",
+  "experiment_requirement": "ch3 中，我们的系统已经能够支持多个任务分时轮流运行，我们希望引入一个新的系统调用 sys_trace （syscall ID: 410）用来追踪当前任务系统调用的历史信息、并进行任务内存的读写。定义如下：\r\n\r\nint sys_trace(int trace_request, unsigned long id, uint8_t data);\r\nsyscall ID: 410\r\n\r\n调用规范：\r\n这个系统调用有三种功能，根据 trace_request 的值不同，执行不同的操作：\r\n\r\n如果 trace_request 为 0，则 id 应被视作 uint8_t * ，表示读取当前任务 id 地址处一个字节的无符号整数值。此时应忽略 data 参数。返回值为 id 地址处的值。\r\n\r\n如果 trace_request 为 1，则 id 应被视作 uint8_t * ，表示写入 data （作为 uint8_t，即只考虑最低位的一个字节）到该用户程序 id 地址处。返回值应为0。\r\n\r\n如果 trace_request 为 2，表示查询当前任务调用编号为 id 的系统调用的次数，返回值为这个调用次数。 本次调用也计入统计 。\r\n\r\n否则，忽略其他参数，返回值为 -1。\r\n\r\n说明：\r\nuint8_t 是C语言中的标准类型，表示一个无符号的8位整数。在代码中你可能需要使用 uint8 替代。\r\n\r\n你可能会注意到，这个调用的读写并不安全，使用不当可能导致崩溃。这是因为在下一章节实现地址空间之前，系统中缺乏隔离机制。所以我们 不要求你实现安全检查机制，只需通过测试用例即可 。\r\n\r\n你还可能注意到，这个系统调用读写本任务内存的功能并不是很有用。这是因为作业的灵感来源 syscall 主要依靠 trace 功能追踪其他任务的信息，但在本章节我们还没有进程、线程等概念，所以简化了操作，只要求追踪自身的信息。",
+  "experiment_title": "ch3 中，我们的系统已经能够支持多个任务分时轮流运行，我们希望引入一个新的系统调用 sys_tra...",
+  "summary": "基于1个修改文件和0个新增文件生成4个问题（OS类型: ucore, RAG检索: 4次）",
+  "total_questions": 4,
+  "questions": [
+    {
+      "id": 1,
+      "category": "implementation",
+      "question": "请看 `sys_trace` 中处理 `trace_request = 2` 的代码片段：\n\n\n\n1. 为什么这里需要对 `id` 进行边界检查（`id < MAX_SYSCALL_NUM`）？如果省略这个检查直接访问 `p->syscall_count[id]`，在操作系统层面会导致什么严重后果？\n2. 当 `id >= MAX_SYSCALL_NUM` 时，函数返回 0 而不是返回错误码（如 -1），这种设计选择可能存在什么隐患？结合系统调用语义的一致性分析。",
+      "rationale": "考察学生对进程控制块（PCB）中固定大小数组访问的边界检查意识，以及理解内核中数组越界可能导致的内存安全问题（如越界读/写其他进程数据或内核关键结构）。同时区分学生是否思考过错误处理策略的合理性。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "case 2:\n    /* 查询当前任务调用编号为 id 的系统调用次数 */\n    if (id < MAX_SYSCALL_NUM)\n        return p->syscall_count[id];\n    else\n        return 0;"
+      ]
+    },
+    {
+      "id": 2,
+      "category": "debugging",
+      "question": "观察 `sys_trace` 中处理内存读写的代码实现：\n\n\n\n实验要求中提到：\"使用不当可能导致崩溃...缺乏隔离机制...不要求你实现安全检查机制\"。从操作系统原理角度回答：\n1. 当系统引入地址空间隔离（如 ch4 的 SV39 页表机制）后，上述直接解引用用户态地址 `id` 的代码会产生什么问题？需要如何修改才能正确访问用户态内存？\n2. 即使在当前 ch3 无隔离的环境下，如果 `id` 指向的是当前任务的用户栈之外的其他区域（如内核数据区），仍然可能导致崩溃。请分析一种具体的危险场景。",
+      "rationale": "考察学生对用户态/内核态内存隔离机制的理解，以及识别潜在的安全隐患。区分\"照搬代码\"和\"理解原理\"的学生，后者应能指出直接解引用用户地址在虚拟内存系统中的不可行性。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "case 0:\n    /* 读取当前任务 id 地址处一个字节 */\n    return *(uint8_t *)id;\ncase 1:\n    /* 写入 data 的最低位字节到 id 地址处 */\n    *(uint8_t *)id = data;\n    return 0;"
+      ]
+    },
+    {
+      "id": 3,
+      "category": "implementation",
+      "question": "根据实验要求，当 `trace_request = 2` 时，\"本次调用也计入统计\"。假设 `syscall_count` 数组的更新逻辑在 `syscall` 函数中实现：\n\n\n\n如果 `syscall_count` 的更新位于 `switch` 语句之前（如上所示），当用户调用 `sys_trace(2, 410, 0)` 查询 syscall 410 的调用次数时，返回的值是否包含当前这次调用？这是否符合实验要求？如果更新逻辑放在 `switch` 之后，又会产生什么问题？",
+      "rationale": "考察对系统调用处理流程和统计更新时机的理解。这是典型的时序问题（timing issue），能区分学生是否真正理解\"本次调用计入统计\"的具体实现细节。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "void syscall()\n{\n    struct proc *p = curr_proc();\n    p->syscall_count[p->trapframe->a7]++;  // 假设在某处更新计数\n    \n    uint64 ret = 0;\n    switch (p->trapframe->a7) {\n    case SYS_trace:\n        ret = sys_trace(p->trapframe->a0, p->trapframe->a1, p->trapframe->a2);\n        break;\n    // ... 其他系统调用\n    }\n    p->trapframe->a0 = ret;\n}"
+      ]
+    },
+    {
+      "id": 4,
+      "category": "understanding",
+      "question": "`sys_trace` 的函数签名设计如下：\n\n\n\n它将三种不同功能（内存读取、内存写入、系统调用统计）合并为一个系统调用，通过 `trace_request` 参数区分。请从操作系统设计的角度分析：\n1. 这种\"多路复用\"（multiplexing）的系统调用设计相比为每个功能单独定义系统调用（如 `sys_peek`, `sys_poke`, `sys_get_syscall_count`）有什么优缺点？\n2. 在 RISC-V 调用规范中，`trace_request` 参数通过 `a0` 寄存器传递。如果在 `case 2` 的处理中，用户传入的 `id` 参数（`a1`）实际上与 `trace_request`（`a0`）的值相同，内核代码是否需要特殊处理来避免混淆？为什么？",
+      "rationale": "考察系统调用接口设计的权衡思考，包括 API 简洁性、可扩展性、参数传递的清晰性。同时测试学生对 RISC-V 调用约定和寄存器使用是否理解。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "uint64 sys_trace(int trace_request, unsigned long id, uint8_t data)"
+      ]
+    }
+  ],
+  "diff_summary": {
+    "added_files": [],
+    "deleted_files": [],
+    "modified_files": [
+      "os/syscall.c"
+    ],
+    "summary": "新增文件: 0个\n删除文件: 0个\n修改文件: 1个\n未变文件: 30个\n\n主要修改:\n  - os/syscall.c (变更行: 29行)"
+  },
+  "metadata": {
+    "diff_summary": "新增文件: 0个\n删除文件: 0个\n修改文件: 1个\n未变文件: 30个\n\n主要修改:\n  - os/syscall.c (变更行: 29行)",
+    "total_files": 62,
+    "raw_response": "## 问题1 [implementation]\n请看 `sys_trace` 中处理 `trace_request = 2` 的代码片段：\n\n<code>\ncase 2:\n    /* 查询当前任务调用编号为 id 的系统调用次数 */\n    if (id < MAX_SYSCALL_NUM)\n        return p->syscall_count[id];\n    else\n        return 0;\n</code>\n\n1. 为什么这里需要对 `id` 进行边界检查（`id < MAX_SYSCALL_NUM`）？如果省略这个检查直接访问 `p->syscall_count[id]`，在操作系统层面会导致什么严重后果？\n2. 当 `id >= MAX_SYSCALL_NUM` 时，函数返回 0 而不是返回错误码（如 -1），这种设计选择可能存在什么隐患？结合系统调用语义的一致性分析。\n\n**出题理由**: 考察学生对进程控制块（PCB）中固定大小数组访问的边界检查意识，以及理解内核中数组越界可能导致的内存安全问题（如越界读/写其他进程数据或内核关键结构）。同时区分学生是否思考过错误处理策略的合理性。\n\n---\n\n## 问题2 [debugging]\n观察 `sys_trace` 中处理内存读写的代码实现：\n\n<code>\ncase 0:\n    /* 读取当前任务 id 地址处一个字节 */\n    return *(uint8_t *)id;\ncase 1:\n    /* 写入 data 的最低位字节到 id 地址处 */\n    *(uint8_t *)id = data;\n    return 0;\n</code>\n\n实验要求中提到：\"使用不当可能导致崩溃...缺乏隔离机制...不要求你实现安全检查机制\"。从操作系统原理角度回答：\n1. 当系统引入地址空间隔离（如 ch4 的 SV39 页表机制）后，上述直接解引用用户态地址 `id` 的代码会产生什么问题？需要如何修改才能正确访问用户态内存？\n2. 即使在当前 ch3 无隔离的环境下，如果 `id` 指向的是当前任务的用户栈之外的其他区域（如内核数据区），仍然可能导致崩溃。请分析一种具体的危险场景。\n\n**出题理由**: 考察学生对用户态/内核态内存隔离机制的理解，以及识别潜在的安全隐患。区分\"照搬代码\"和\"理解原理\"的学生，后者应能指出直接解引用用户地址在虚拟内存系统中的不可行性。\n\n---\n\n## 问题3 [implementation]\n根据实验要求，当 `trace_request = 2` 时，\"本次调用也计入统计\"。假设 `syscall_count` 数组的更新逻辑在 `syscall` 函数中实现：\n\n<code>\nvoid syscall()\n{\n    struct proc *p = curr_proc();\n    p->syscall_count[p->trapframe->a7]++;  // 假设在某处更新计数\n    \n    uint64 ret = 0;\n    switch (p->trapframe->a7) {\n    case SYS_trace:\n        ret = sys_trace(p->trapframe->a0, p->trapframe->a1, p->trapframe->a2);\n        break;\n    // ... 其他系统调用\n    }\n    p->trapframe->a0 = ret;\n}\n</code>\n\n如果 `syscall_count` 的更新位于 `switch` 语句之前（如上所示），当用户调用 `sys_trace(2, 410, 0)` 查询 syscall 410 的调用次数时，返回的值是否包含当前这次调用？这是否符合实验要求？如果更新逻辑放在 `switch` 之后，又会产生什么问题？\n\n**出题理由**: 考察对系统调用处理流程和统计更新时机的理解。这是典型的时序问题（timing issue），能区分学生是否真正理解\"本次调用计入统计\"的具体实现细节。\n\n---\n\n## 问题4 [understanding]\n`sys_trace` 的函数签名设计如下：\n\n<code>\nuint64 sys_trace(int trace_request, unsigned long id, uint8_t data)\n</code>\n\n它将三种不同功能（内存读取、内存写入、系统调用统计）合并为一个系统调用，通过 `trace_request` 参数区分。请从操作系统设计的角度分析：\n1. 这种\"多路复用\"（multiplexing）的系统调用设计相比为每个功能单独定义系统调用（如 `sys_peek`, `sys_poke`, `sys_get_syscall_count`）有什么优缺点？\n2. 在 RISC-V 调用规范中，`trace_request` 参数通过 `a0` 寄存器传递。如果在 `case 2` 的处理中，用户传入的 `id` 参数（`a1`）实际上与 `trace_request`（`a0`）的值相同，内核代码是否需要特殊处理来避免混淆？为什么？\n\n**出题理由**: 考察系统调用接口设计的权衡思考，包括 API 简洁性、可扩展性、参数传递的清晰性。同时测试学生对 RISC-V 调用约定和寄存器使用是否理解。\n\n---\n\n## 问题5 [concept]\n在 `sys_trace` 的实现中，通过 `curr_proc()` 获取当前任务：\n\n<code>\nuint64 sys_trace(int trace_request, unsigned long id, uint8_t data)\n{\n    struct proc *p = curr_proc();\n    // ...\n    case 2:\n        return p->syscall_count[id];\n}\n</code>\n\n根据课程资料中 ch3 关于进程管理的描述：\n1. 在分时多任务系统中，`curr_proc()` 是如何确定哪个进程是\"当前\"正在运行的？请结合 `struct proc` 中的状态字段（`RUNNING`, `RUNNABLE` 等）和调度器（scheduler）的实现机制说明。\n2. 如果在 `sys_trace` 执行过程中（特别是在执行 `case 0` 或 `case 1` 的内存访问时）发生时钟中断并触发进程切换，当该任务再次恢复执行时，`curr_proc()` 返回的指针是否仍然有效？为什么？\n\n**出题理由**: 考察对\"当前进程\"概念的理解，以及在中断和并发环境下内核数据结构的稳定性。这是理解操作系统内核执行环境的关键概念。",
+    "context_length": 9471,
+    "use_kimi": true,
+    "os_type": "ucore",
+    "rag_enabled": true,
+    "rag_tool_calls": [
+      {
+        "tool": "search_by_lab",
+        "arguments": {
+          "lab_name": "ch3"
+        }
+      },
+      {
+        "tool": "search_os_concept",
+        "arguments": {
+          "concept": "系统调用",
+          "detail_level": "standard"
+        }
+      },
+      {
+        "tool": "search_by_code_symbol",
+        "arguments": {
+          "symbol_name": "curr_proc",
+          "context": "获取当前进程/任务"
+        }
+      },
+      {
+        "tool": "search_os_concept",
+        "arguments": {
+          "concept": "用户态内存访问",
+          "detail_level": "standard"
+        }
+      }
+    ],
+    "rag_results_length": 7599
+  }
+}

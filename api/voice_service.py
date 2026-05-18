@@ -1,18 +1,43 @@
-"""语音服务模块 - 使用 edge-tts + faster-whisper（本地 Whisper，国内下载源）"""
+"""
+语音服务模块 - 腾讯云一句话识别 + 录音文件识别（长音频）+ Edge-TTS
+调用方式：一次性传入完整音频 → 返回完整识别文本
+"""
 
 import os
 import tempfile
 import asyncio
 import re
 import subprocess
+import base64
+import time
+import uuid
 from typing import Optional, Tuple, Dict, Any
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 import edge_tts
 
+# 腾讯云 SDK
+try:
+    from tencentcloud.common import credential
+    from tencentcloud.asr.v20190614 import asr_client, models
+    TENCENT_SDK_AVAILABLE = True
+except ImportError:
+    TENCENT_SDK_AVAILABLE = False
+    print("[VoiceService] 腾讯云SDK未安装，请执行: pip install tencentcloud-sdk-python")
+
+# 腾讯云 COS SDK（录音文件识别需要）
+try:
+    from qcloud_cos import CosConfig, CosS3Client
+    COS_SDK_AVAILABLE = True
+except ImportError:
+    COS_SDK_AVAILABLE = False
+    print("[VoiceService] COS SDK未安装，长音频识别不可用。请执行: pip install cos-python-sdk-v5")
+
+
 @dataclass
 class AudioConfig:
+    """语音服务配置"""
     sample_rate: int = 24000
     channels: int = 1
     format: str = "mp3"
@@ -24,151 +49,248 @@ class AudioConfig:
     debug_dir: str = "/home/gsk/thesis_2026-gsk/debug"
     save_debug: bool = True
 
+    # 腾讯云 ASR 通用配置
+    tencent_secret_id: str = os.getenv("TENCENT_SECRET_ID", "")
+    tencent_secret_key: str = os.getenv("TENCENT_SECRET_KEY", "")
+    tencent_region: str = os.getenv("TENCENT_ASR_REGION", "ap-guangzhou")
+
+    # 录音文件识别 COS 配置
+    cos_bucket: str = os.getenv("COS_BUCKET", "")
+    cos_region: str = os.getenv("COS_REGION", "ap-guangzhou")
+    cos_secret_id: str = os.getenv("COS_SECRET_ID", "")   # 未设置则复用 tencent_secret_id
+    cos_secret_key: str = os.getenv("COS_SECRET_KEY", "")
+
+
 class VoiceService:
     def __init__(self, config: AudioConfig = None):
         self.config = config or AudioConfig()
-        self.whisper_model = None
 
+        # 调试目录
         if self.config.save_debug and self.config.debug_dir:
             os.makedirs(self.config.debug_dir, exist_ok=True)
-            print(f"[VoiceService] 调试目录已就绪: {self.config.debug_dir}")
+            print(f"[VoiceService] 调试目录: {self.config.debug_dir}")
 
-        self._init_whisper()
-
-    def _init_whisper(self):
-        """初始化 faster-whisper（从 ModelScope 国内镜像下载）"""
-        try:
-            from faster_whisper import WhisperModel
-        except ImportError:
-            print("[VoiceService] 错误: 缺少依赖。请执行:")
-            print("  pip install faster-whisper onnxruntime")
-            return
-
-        model_size = os.getenv("WHISPER_MODEL_SIZE", "tiny")
-        print(f"[VoiceService] 准备加载 Whisper 模型: {model_size}")
-
-        cache_dir = Path.home() / ".cache" / "faster-whisper"
-        model_dir = cache_dir / model_size
-
-        try:
-            # 检查并下载模型
-            if not self._check_model_files(model_dir):
-                print(f"[VoiceService] 从国内镜像下载 {model_size} 模型...")
-                self._download_model(model_size, model_dir)
-
-            # 【关键修复】直接传递模型目录路径，而不是模型名称
-            # 这样 faster-whisper 会直接加载本地文件，不检查 HuggingFace 缓存结构
-            print(f"[VoiceService] 正在加载模型: {model_dir}")
-            self.whisper_model = WhisperModel(
-                str(model_dir),  # 传递绝对路径！
-                device="cpu",
-                compute_type="int8",
-                cpu_threads=4,
+        # 初始化腾讯云 ASR 通用客户端（一句话识别 / 录音文件创建）
+        self.asr_client = None
+        if TENCENT_SDK_AVAILABLE and self.config.tencent_secret_id:
+            cred = credential.Credential(
+                self.config.tencent_secret_id,
+                self.config.tencent_secret_key
             )
-            
-            print(f"[VoiceService] ✅ ASR 已就绪 (faster-whisper {model_size}, 完全离线)")
+            self.asr_client = asr_client.AsrClient(cred, self.config.tencent_region)
+            print(f"[VoiceService] ✅ 腾讯云 ASR 客户端已就绪 (region: {self.config.tencent_region})")
+        else:
+            print("[VoiceService] 未配置腾讯云 ASR 凭据，语音识别不可用")
 
-        except Exception as e:
-            print(f"[VoiceService] ASR 初始化失败: {e}")
-            import traceback
-            traceback.print_exc()
+        # 初始化 COS 客户端（用于录音文件识别上传）
+        self.cos_client = None
+        if COS_SDK_AVAILABLE:
+            cos_id = self.config.cos_secret_id or self.config.tencent_secret_id
+            cos_key = self.config.cos_secret_key or self.config.tencent_secret_key
+            if self.config.cos_bucket and cos_id:
+                cos_config = CosConfig(
+                    Region=self.config.cos_region,
+                    SecretId=cos_id,
+                    SecretKey=cos_key,
+                )
+                self.cos_client = CosS3Client(cos_config)
+                print(f"[VoiceService] ✅ COS 客户端已就绪 (bucket: {self.config.cos_bucket})")
+            else:
+                print("[VoiceService] COS 存储桶/密钥未配置，无法使用录音文件识别")
+        else:
+            print("[VoiceService] COS SDK 未安装，无法使用录音文件识别")
 
-    def _check_model_files(self, model_dir: Path) -> bool:
-        """检查模型文件是否完整"""
-        if not model_dir.exists():
-            return False
-        
-        required = ["model.bin", "config.json", "vocabulary.txt", "tokenizer.json"]
-        for f in required:
-            if not (model_dir / f).exists():
-                return False
-        
-        # 检查 model.bin 大小
-        model_bin = model_dir / "model.bin"
-        if model_bin.exists():
-            size_mb = model_bin.stat().st_size / 1024 / 1024
-            print(f"[VoiceService] 模型已缓存: {model_dir} ({size_mb:.1f}MB)")
-            return True
-        return False
-
-    def _download_model(self, model_size: str, model_dir: Path):
-        """从国内镜像下载模型文件"""
-        import requests
-        from tqdm import tqdm
-        
-        model_dir.mkdir(parents=True, exist_ok=True)
-        
-        # 文件列表
-        files = ["config.json", "model.bin", "tokenizer.json", "vocabulary.txt"]
-        
-        # 镜像源（按优先级）
-        repo_id = f"Systran/faster-whisper-{model_size}"
-        urls = [
-            f"https://hf-mirror.com/{repo_id}/resolve/main/",  # 国内镜像1
-            f"https://huggingface.co/{repo_id}/resolve/main/",  # 官方源
-        ]
-        
-        for filename in files:
-            target = model_dir / filename
-            
-            # 如果已存在且大小合理，跳过
-            if target.exists() and target.stat().st_size > 1000:
-                continue
-            
-            print(f"[VoiceService] 下载 {filename}...")
-            downloaded = False
-            
-            for base_url in urls:
-                try:
-                    url = base_url + filename
-                    resp = requests.get(url, stream=True, timeout=120)
-                    resp.raise_for_status()
-                    
-                    total = int(resp.headers.get('content-length', 0))
-                    with tqdm(desc=filename, total=total, unit='B', unit_scale=True, ncols=80) as pbar:
-                        with open(target, 'wb') as f:
-                            for chunk in resp.iter_content(chunk_size=8192):
-                                if chunk:
-                                    f.write(chunk)
-                                    pbar.update(len(chunk))
-                    downloaded = True
-                    break
-                except Exception as e:
-                    print(f"[Download] 失败: {url[:40]}... - {str(e)[:50]}")
-                    continue
-            
-            if not downloaded:
-                raise RuntimeError(f"无法下载 {filename}")
-
-    def _preprocess_audio(self, audio_bytes: bytes, mime_type: str) -> str:
-        """转换为 16kHz WAV"""
+    # ==================== 音频预处理 ====================
+    def _preprocess_audio(self, audio_bytes: bytes, mime_type: str, output_format: str = "wav") -> str:
+        """将任意音频转为 16kHz 单声道，输出 WAV 或 MP3，返回临时文件路径"""
         ext_map = {
             "audio/webm": ".webm", "audio/wav": ".wav", "audio/x-wav": ".wav",
             "audio/mp3": ".mp3", "audio/mpeg": ".mp3", "audio/mp4": ".mp4",
             "audio/m4a": ".m4a", "audio/ogg": ".ogg"
         }
         suffix = ext_map.get(mime_type, ".webm")
-        
+
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp_in:
             tmp_in.write(audio_bytes)
             tmp_in_path = tmp_in.name
-        
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_wav:
-            tmp_wav_path = tmp_wav.name
-        
+
+        out_suffix = ".wav" if output_format == "wav" else ".mp3"
+        with tempfile.NamedTemporaryFile(suffix=out_suffix, delete=False) as tmp_out:
+            out_path = tmp_out.name
+
         try:
-            subprocess.run([
-                "ffmpeg", "-y", "-i", tmp_in_path,
-                "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
-                tmp_wav_path
-            ], check=True, capture_output=True, timeout=10)
-            return tmp_wav_path
+            if output_format == "wav":
+                cmd = [
+                    "ffmpeg", "-y", "-i", tmp_in_path,
+                    "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
+                    out_path
+                ]
+            else:  # mp3
+                cmd = [
+                    "ffmpeg", "-y", "-i", tmp_in_path,
+                    "-ar", "16000", "-ac", "1",
+                    "-c:a", "libmp3lame", "-b:a", "24k",
+                    out_path
+                ]
+            subprocess.run(cmd, check=True, capture_output=True, timeout=15)
+            return out_path
         finally:
             if os.path.exists(tmp_in_path):
                 os.unlink(tmp_in_path)
 
+    # ==================== 一句话识别（短音频） ====================
+    def _short_speech_to_text(self, wav_path: str) -> tuple:
+        """一句话识别（Data 方式），返回 (text, confidence)"""
+        with open(wav_path, "rb") as f:
+            audio_data = f.read()
+        if len(audio_data) > 5 * 1024 * 1024:
+            raise Exception("音频过大，请使用录音文件识别")
+        data_b64 = base64.b64encode(audio_data).decode()
+
+        req = models.SentenceRecognitionRequest()
+        req.EngSerViceType = "16k_zh"
+        req.SourceType = 1          # 语音数据
+        req.VoiceFormat = "wav"
+        req.Data = data_b64
+        req.DataLen = len(audio_data)
+        resp = self.asr_client.SentenceRecognition(req)
+        if resp.Result == "" and resp.ErrorMsg:
+            raise Exception(f"识别错误: {resp.ErrorMsg}")
+        text = resp.Result or ""
+        confidence = 0.95
+        return text, confidence
+
+    # ==================== 录音文件识别（长音频） ====================
+    def _upload_to_cos(self, local_path: str, cos_key: str = None) -> str:
+        """上传文件到 COS，返回公网临时访问 URL（有效期 1 小时）"""
+        if not self.cos_client:
+            raise Exception("COS 客户端未初始化，无法上传长音频")
+        if cos_key is None:
+            cos_key = f"asr_uploads/{int(time.time())}_{os.path.basename(local_path)}"
+        with open(local_path, "rb") as f:
+            self.cos_client.put_object(
+                Bucket=self.config.cos_bucket,
+                Body=f,
+                Key=cos_key,
+                ContentType="audio/wav"
+            )
+        # 生成临时下载 URL（1 小时有效）
+        url = self.cos_client.get_presigned_download_url(
+            Bucket=self.config.cos_bucket,
+            Key=cos_key,
+            Expired=3600
+        )
+        return url
+
+    def _create_rec_task(self, audio_url: str, engine_model: str = "16k_zh") -> int:
+        """创建录音文件识别任务，返回 TaskId（整数）"""
+        if not self.asr_client:
+            raise Exception("ASR 客户端未初始化")
+        req = models.CreateRecTaskRequest()
+        req.EngineModelType = engine_model
+        req.ChannelNum = 1
+        req.ResTextFormat = 0      # 0: 带时间戳文本
+        req.SourceType = 0         # 0: URL
+        req.Url = audio_url
+        resp = self.asr_client.CreateRecTask(req)
+        return resp.Data.TaskId
+
+    def _query_rec_task(self, task_id: int) -> dict:
+        """查询任务状态，返回 {'status': 0/1/2/3, 'result': ...}"""
+        if not self.asr_client:
+            raise Exception("ASR 客户端未初始化")
+        req = models.DescribeTaskStatusRequest()
+        req.TaskId = task_id
+        resp = self.asr_client.DescribeTaskStatus(req)
+        return {
+            "status": resp.Data.Status,       # 0:等待，1:处理中，2:成功，3:失败
+            "result": resp.Data.Result if resp.Data.Status == 2 else None,
+            "error_msg": resp.Data.ErrorMsg if resp.Data.Status == 3 else None,
+        }
+
+    # ==================== 统一 ASR 入口（一次性调用） ====================
+    async def speech_to_text(self, audio_bytes: bytes, mime_type: str = "audio/webm") -> Dict[str, Any]:
+        """
+        语音识别主接口：
+        - 自动选择短音频（一句话识别）或长音频（录音文件识别）
+        - 返回格式: {"success": bool, "text": str, "confidence": float}
+        """
+        if not self.asr_client:
+            return {"success": False, "text": "ASR 未就绪，请配置腾讯云凭据", "confidence": 0.0}
+
+        loop = asyncio.get_event_loop()
+        wav_path = None
+        try:
+            # 1. 转为标准 16kHz WAV 并获取大小
+            wav_path = await loop.run_in_executor(
+                None, self._preprocess_audio, audio_bytes, mime_type, "wav"
+            )
+            file_size = os.path.getsize(wav_path)
+
+            # 2. 小文件直接用一句话识别（快速，无 COS 开销）
+            if file_size <= 5 * 1024 * 1024:
+                text, confidence = await loop.run_in_executor(
+                    None, self._short_speech_to_text, wav_path
+                )
+                return {
+                    "success": bool(text),
+                    "text": text or "未识别到语音内容",
+                    "confidence": confidence
+                }
+
+            # 3. 大文件走录音文件识别
+            print(f"[ASR] 音频较大 ({file_size/1024/1024:.1f}MB)，使用录音文件识别...")
+            if not self.cos_client:
+                return {
+                    "success": False,
+                    "text": "录音文件识别需要配置 COS 存储桶（请设置环境变量 COS_BUCKET 等）",
+                    "confidence": 0.0
+                }
+
+            # 上传到 COS
+            url = await loop.run_in_executor(
+                None, self._upload_to_cos, wav_path
+            )
+            # 创建识别任务
+            task_id = await loop.run_in_executor(
+                None, self._create_rec_task, url, "16k_zh"
+            )
+            print(f"[ASR] 录音文件识别任务已创建: {task_id}")
+
+            # 轮询直到完成（最长等待 5 分钟）
+            for _ in range(150):   # 150 * 2s = 5 分钟
+                result = await loop.run_in_executor(
+                    None, self._query_rec_task, task_id
+                )
+                if result["status"] == 2:   # 成功
+                    raw = result["result"]
+                    # 如果 ResTextFormat=0，文本形如 "[0:1.200]你好"，提取纯文本
+                    import re
+                    clean_text = re.sub(r'\[[\d:.]+\]', '', raw).strip()
+                    return {
+                        "success": True,
+                        "text": clean_text or "未识别到语音内容",
+                        "confidence": 0.95
+                    }
+                elif result["status"] == 3:   # 失败
+                    return {
+                        "success": False,
+                        "text": f"识别失败: {result.get('error_msg', '未知错误')}",
+                        "confidence": 0.0
+                    }
+                await asyncio.sleep(2)
+
+            return {"success": False, "text": "识别超时，请稍后重试", "confidence": 0.0}
+
+        except Exception as e:
+            print(f"[ASR Error] {e}")
+            return {"success": False, "text": f"识别失败: {str(e)}", "confidence": 0.0}
+        finally:
+            if wav_path and os.path.exists(wav_path):
+                os.unlink(wav_path)
+
+    # ==================== TTS（保持不变） ====================
     def _clean_text(self, text: str) -> str:
-        """清洗文本"""
         if not text:
             return "内容为空"
         text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
@@ -179,34 +301,29 @@ class VoiceService:
         text = text.replace('...', '，').replace('..', '，')
         text = text.replace(',', '，').replace('.', '。')
         text = re.sub(r'\n+', '，', text)
-        
         max_len = 300
         if len(text) > max_len:
             truncated = text[:max_len]
-            last_punct = max(truncated.rfind('。'), truncated.rfind('？'), 
+            last_punct = max(truncated.rfind('。'), truncated.rfind('？'),
                            truncated.rfind('！'), truncated.rfind('，'))
             text = truncated[:last_punct+1] if last_punct > max_len * 0.7 else truncated[:max_len-3] + "..."
         return text.strip() if text.strip() else "内容为空"
 
     def _save_debug_audio(self, audio_bytes: bytes, text: str, voice: str, rate: str) -> Optional[str]:
-        """保存调试文件"""
         if not self.config.save_debug or not self.config.debug_dir:
             return None
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:17]
             text_preview = re.sub(r'[^\w\s]', '', text[:20]).strip().replace(' ', '_') or "empty"
-            
             debug_path = os.path.join(self.config.debug_dir, f"tts_{timestamp}_{text_preview}.mp3")
             with open(debug_path, "wb") as f:
                 f.write(audio_bytes)
-            
             meta_path = os.path.join(self.config.debug_dir, f"tts_{timestamp}_{text_preview}.txt")
             with open(meta_path, "w", encoding="utf-8") as f:
                 f.write(f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write(f"语音: {voice}\n语速: {rate}\n")
                 f.write(f"文本长度: {len(text)}\n音频大小: {len(audio_bytes)} bytes\n")
                 f.write(f"原始文本: {text}\n")
-            
             print(f"[Debug] 已保存: {os.path.basename(debug_path)}")
             return debug_path
         except Exception as e:
@@ -214,13 +331,10 @@ class VoiceService:
             return None
 
     async def text_to_speech(self, text: str, slow: bool = False, max_retries: int = 1) -> Tuple[str, bytes]:
-        """TTS"""
         cleaned = self._clean_text(text)
-        print(f"[TTS] 开始生成: {cleaned[:50]}...")
-        
+        print(f"[TTS] 生成: {cleaned[:50]}...")
         fd, output_path = tempfile.mkstemp(suffix=".mp3")
         os.close(fd)
-        
         try:
             rate = "-25%" if slow else self.config.tts_rate
             communicate = edge_tts.Communicate(
@@ -228,26 +342,20 @@ class VoiceService:
                 rate=rate, volume=self.config.tts_volume, pitch=self.config.tts_pitch
             )
             await asyncio.wait_for(communicate.save(output_path), timeout=6.0)
-            
             with open(output_path, "rb") as f:
                 audio_bytes = f.read()
-            
             if len(audio_bytes) < 1000:
-                raise Exception("音频文件过小")
-            
+                raise Exception("音频过小")
             print(f"[TTS] 成功: {len(audio_bytes)}bytes")
             self._save_debug_audio(audio_bytes, cleaned, self.config.tts_voice, rate)
-            
             asyncio.create_task(self._delayed_delete(output_path))
             return output_path, audio_bytes
-            
         except Exception as e:
             if os.path.exists(output_path):
                 os.unlink(output_path)
             raise Exception(f"语音生成失败: {e}")
 
     async def _delayed_delete(self, path: str, delay: float = 3.0):
-        """延迟删除"""
         await asyncio.sleep(delay)
         try:
             if os.path.exists(path):
@@ -255,60 +363,6 @@ class VoiceService:
         except:
             pass
 
-    async def speech_to_text(self, audio_bytes: bytes, mime_type: str = "audio/webm") -> Dict[str, Any]:
-        """ASR - faster-whisper 本地推理"""
-        if not self.whisper_model:
-            return {
-                "success": False, 
-                "text": "ASR未初始化。请执行: pip install faster-whisper onnxruntime", 
-                "confidence": 0.0
-            }
-        
-        wav_path = None
-        try:
-            print(f"[ASR] 开始识别 ({len(audio_bytes)} bytes)...")
-            
-            loop = asyncio.get_event_loop()
-            wav_path = await loop.run_in_executor(None, self._preprocess_audio, audio_bytes, mime_type)
-            
-            def _transcribe():
-                segments, info = self.whisper_model.transcribe(
-                    wav_path,
-                    language="zh",
-                    beam_size=5,
-                    vad_filter=True,
-                    condition_on_previous_text=False,
-                )
-                
-                text_parts = []
-                for segment in segments:
-                    text_parts.append(segment.text)
-                
-                full_text = "".join(text_parts).strip()
-                confidence = min(0.95, max(0.5, info.language_probability if info else 0.8))
-                
-                return full_text, confidence, info.language if info else "zh"
 
-            text, confidence, detected_lang = await loop.run_in_executor(None, _transcribe)
-            
-            print(f"[ASR] 识别: {text[:50]}..." if text else "[ASR] 未识别")
-            
-            return {
-                "success": bool(text),
-                "text": text or "未识别到语音内容",
-                "confidence": round(confidence, 2),
-                "language": detected_lang
-            }
-            
-        except Exception as e:
-            print(f"[ASR Error] {e}")
-            return {"success": False, "text": f"识别失败: {str(e)}", "confidence": 0.0}
-        finally:
-            if wav_path and os.path.exists(wav_path):
-                try:
-                    os.unlink(wav_path)
-                except:
-                    pass
-
-# 全局实例
+# 全局实例（方便直接导入）
 voice_service = VoiceService()

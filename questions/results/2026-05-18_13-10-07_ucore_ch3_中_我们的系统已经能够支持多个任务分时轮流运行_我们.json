@@ -1,0 +1,84 @@
+{
+  "generated_at": "2026-05-18T13:10:07.253262",
+  "os_type": "ucore",
+  "experiment_requirement": "ch3 中，我们的系统已经能够支持多个任务分时轮流运行，我们希望引入一个新的系统调用 sys_trace （syscall ID: 410）用来追踪当前任务系统调用的历史信息、并进行任务内存的读写。定义如下：\r\n\r\nint sys_trace(int trace_request, unsigned long id, uint8_t data);\r\nsyscall ID: 410\r\n\r\n调用规范：\r\n这个系统调用有三种功能，根据 trace_request 的值不同，执行不同的操作：\r\n\r\n如果 trace_request 为 0，则 id 应被视作 uint8_t * ，表示读取当前任务 id 地址处一个字节的无符号整数值。此时应忽略 data 参数。返回值为 id 地址处的值。\r\n\r\n如果 trace_request 为 1，则 id 应被视作 uint8_t * ，表示写入 data （作为 uint8_t，即只考虑最低位的一个字节）到该用户程序 id 地址处。返回值应为0。\r\n\r\n如果 trace_request 为 2，表示查询当前任务调用编号为 id 的系统调用的次数，返回值为这个调用次数。 本次调用也计入统计 。\r\n\r\n否则，忽略其他参数，返回值为 -1。\r\n\r\n说明：\r\nuint8_t 是C语言中的标准类型，表示一个无符号的8位整数。在代码中你可能需要使用 uint8 替代。\r\n\r\n你可能会注意到，这个调用的读写并不安全，使用不当可能导致崩溃。这是因为在下一章节实现地址空间之前，系统中缺乏隔离机制。所以我们 不要求你实现安全检查机制，只需通过测试用例即可 。\r\n\r\n你还可能注意到，这个系统调用读写本任务内存的功能并不是很有用。这是因为作业的灵感来源 syscall 主要依靠 trace 功能追踪其他任务的信息，但在本章节我们还没有进程、线程等概念，所以简化了操作，只要求追踪自身的信息。",
+  "experiment_title": "ch3 中，我们的系统已经能够支持多个任务分时轮流运行，我们希望引入一个新的系统调用 sys_tra...",
+  "summary": "基于1个修改文件和0个新增文件生成3个问题（OS类型: ucore, RAG检索: 4次）",
+  "total_questions": 3,
+  "questions": [
+    {
+      "id": 1,
+      "category": "general",
+      "question": "\n请看你在`os/syscall.c`中实现的`sys_trace`函数片段：\n<code>\nuint64 sys_trace(int trace_request, unsigned long id, uint8_t data)\n{\nstruct proc *p = curr_proc();\nswitch (trace_request) {\ncase 0:\n/* 读取当前任务 id 地址处一个字节 */\nreturn *(uint8_t *)id;\ncase 1:\n/* 写入 data 的最低位字节到 id 地址处 */\n*(uint8_t *)id = data;\nreturn 0;\ncase 2:\n/* 查询当前任务调用编号为 id 的系统调用次数 */\nif (id < MAX_SYSCALL_NUM)\nreturn p->syscall_count[id];\nelse\nreturn 0;\ndefault:\nreturn -1;\n}\n}\n</code>\n实验要求中提到，当`trace_request`为2时，\"**本次调用也计入统计**\"。但从上述代码来看，`case 2`分支只是简单地返回了`p->syscall_count[id]`的当前值，没有看到对计数器进行+1的操作。",
+      "rationale": "",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": []
+    },
+    {
+      "id": 2,
+      "category": "general",
+      "question": "请分析：如果返回的结果需要包含本次`sys_trace`调用本身，那么`p->syscall_count`数组的更新应该发生在什么时候、什么位置？（提示：考虑系统调用的入口处理流程，以及`syscall.c`中通常存在的`syscall`函数的作用）",
+      "rationale": "",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": []
+    },
+    {
+      "id": 3,
+      "category": "general",
+      "question": "对于`case 0`和`case 1`中的内存访问操作`*(uint8_t *)id`，实验说明中提到\"**不要求你实现安全检查机制**\"。结合课程资料中关于\"下一章节实现地址空间之前，系统中缺乏隔离机制\"的背景，请解释：如果在实际的生产操作系统中，内核直接解引用用户传入的指针会存在什么安全风险？在ch4引入地址空间后，我们又需要通过什么机制来安全地访问用户态内存？\n**出题理由**:\n- 第1问考察学生对系统调用处理流程的整体理解，区分\"只在函数内写逻辑\"和\"理解系统调用生命周期\"的学生。要求学生意识到`syscall_count`的更新必须在系统调用入口统一处理（通常在`syscall`函数中根据`trapframe->a7`进行计数），而不是在每个系统调用函数内部分散处理，否则容易遗漏且难以维护。\n- 第2问结合课程进度（ch3尚未实现地址空间，ch4将实现页表机制），考察学生对内存隔离重要性的理解，以及内核直接访问用户地址的危险性（如用户传入非法地址导致内核panic、用户恶意传入内核地址进行任意读写破坏内核数据等），为后续学习页表遍历和`copy_from_user`/`copy_to_user`等安全访问机制做铺垫。",
+      "rationale": "",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": []
+    }
+  ],
+  "diff_summary": {
+    "added_files": [],
+    "deleted_files": [],
+    "modified_files": [
+      "os/syscall.c"
+    ],
+    "summary": "新增文件: 0个\n删除文件: 0个\n修改文件: 1个\n未变文件: 30个\n\n主要修改:\n  - os/syscall.c (变更行: 29行)"
+  },
+  "metadata": {
+    "diff_summary": "新增文件: 0个\n删除文件: 0个\n修改文件: 1个\n未变文件: 30个\n\n主要修改:\n  - os/syscall.c (变更行: 29行)",
+    "total_files": 62,
+    "raw_response": "## 问题1 [implementation + understanding]\n\n请看你在`os/syscall.c`中实现的`sys_trace`函数片段：\n\n<code>\nuint64 sys_trace(int trace_request, unsigned long id, uint8_t data)\n{\n\tstruct proc *p = curr_proc();\n\tswitch (trace_request) {\n\tcase 0:\n\t\t/* 读取当前任务 id 地址处一个字节 */\n\t\treturn *(uint8_t *)id;\n\tcase 1:\n\t\t/* 写入 data 的最低位字节到 id 地址处 */\n\t\t*(uint8_t *)id = data;\n\t\treturn 0;\n\tcase 2:\n\t\t/* 查询当前任务调用编号为 id 的系统调用次数 */\n\t\tif (id < MAX_SYSCALL_NUM)\n\t\t\treturn p->syscall_count[id];\n\t\telse\n\t\t\treturn 0;\n\tdefault:\n\t\treturn -1;\n\t}\n}\n</code>\n\n实验要求中提到，当`trace_request`为2时，\"**本次调用也计入统计**\"。但从上述代码来看，`case 2`分支只是简单地返回了`p->syscall_count[id]`的当前值，没有看到对计数器进行+1的操作。\n\n1. 请分析：如果返回的结果需要包含本次`sys_trace`调用本身，那么`p->syscall_count`数组的更新应该发生在什么时候、什么位置？（提示：考虑系统调用的入口处理流程，以及`syscall.c`中通常存在的`syscall`函数的作用）\n\n2. 对于`case 0`和`case 1`中的内存访问操作`*(uint8_t *)id`，实验说明中提到\"**不要求你实现安全检查机制**\"。结合课程资料中关于\"下一章节实现地址空间之前，系统中缺乏隔离机制\"的背景，请解释：如果在实际的生产操作系统中，内核直接解引用用户传入的指针会存在什么安全风险？在ch4引入地址空间后，我们又需要通过什么机制来安全地访问用户态内存？\n\n**出题理由**: \n- 第1问考察学生对系统调用处理流程的整体理解，区分\"只在函数内写逻辑\"和\"理解系统调用生命周期\"的学生。要求学生意识到`syscall_count`的更新必须在系统调用入口统一处理（通常在`syscall`函数中根据`trapframe->a7`进行计数），而不是在每个系统调用函数内部分散处理，否则容易遗漏且难以维护。\n- 第2问结合课程进度（ch3尚未实现地址空间，ch4将实现页表机制），考察学生对内存隔离重要性的理解，以及内核直接访问用户地址的危险性（如用户传入非法地址导致内核panic、用户恶意传入内核地址进行任意读写破坏内核数据等），为后续学习页表遍历和`copy_from_user`/`copy_to_user`等安全访问机制做铺垫。",
+    "context_length": 10754,
+    "use_kimi": true,
+    "os_type": "ucore",
+    "rag_enabled": true,
+    "rag_tool_calls": [
+      {
+        "tool": "search_by_lab",
+        "arguments": {
+          "lab_name": "ch3"
+        }
+      },
+      {
+        "tool": "search_os_concept",
+        "arguments": {
+          "concept": "系统调用",
+          "detail_level": "detailed"
+        }
+      },
+      {
+        "tool": "search_by_code_symbol",
+        "arguments": {
+          "symbol_name": "curr_proc",
+          "context": "获取当前任务/进程"
+        }
+      },
+      {
+        "tool": "search_os_concept",
+        "arguments": {
+          "concept": "内存隔离",
+          "detail_level": "standard"
+        }
+      }
+    ],
+    "rag_results_length": 8882
+  }
+}

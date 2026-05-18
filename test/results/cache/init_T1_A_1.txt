@@ -1,0 +1,5 @@
+在rCore里，轮转调度主要靠时钟中断驱动。我在`trap_handler`里捕获Timer中断后，先调用`set_next_trigger`设置下一次时钟，然后执行`suspend_current_and_run_next`。
+
+这里的关键是区分TrapContext和TaskContext：前者是`__alltraps`用汇编保存在内核栈上的完整现场（包括通用寄存器和sepc），后者是任务切换时在`switch`函数里额外保存的恢复点（主要是ra和s0-s11这些被调用者保存寄存器）。调度器从就绪队列取出下一个任务，通过`__restore`恢复新任务的TaskContext完成切换。
+
+要注意的是几个边界情况：如果就绪队列为空，我得跳转到idle任务循环等待，不能直接panic；另外切换过程中必须关中断，防止在半保存状态时被嵌套中断打乱。还有任务状态从Running改为Ready的原子性问题，我通过`processor.rs`里的`take_current`配合`current_user_token`来避免持有可变引用时发生切换，这样比较安全。

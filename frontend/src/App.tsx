@@ -1,11 +1,71 @@
 /**
  * App.tsx - LLM委员会考试系统（文字考试 + 语音口试 + OS实验模式）
- * 兼容后端 API 版本 3.0.0
- * 
- * 改进：点击开始考试后立即跳转到语音考试界面，在考试界面等待出题
+ * 修复：代码块改用 react-syntax-highlighter，消除乱码
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+// 引入代码高亮组件和暗色主题样式
+import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { atomOneDark } from 'react-syntax-highlighter/dist/esm/styles/hljs';
+
+// ==================== 代码块组件（改用第三方库） ====================
+const CodeBlock: React.FC<{ code: string; index?: number }> = ({ code, index }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  // 自动检测语言（简单推断）
+  const detectLang = (c: string): string => {
+    if (c.includes('def ') || c.includes('import ')) return 'python';
+    if (c.includes('function') || c.includes('const ')) return 'javascript';
+    if (c.includes('public class')) return 'java';
+    if (c.includes('#include')) return 'cpp';
+    return 'text'; // 未知则当纯文本
+  };
+
+  return (
+    <div className="rounded-lg my-3 overflow-hidden border border-gray-700 shadow-lg">
+      {/* 顶部工具栏 */}
+      <div className="flex justify-between items-center px-4 py-2 bg-gray-800 border-b border-gray-700">
+        <span className="text-xs font-semibold text-gray-300 uppercase tracking-wide">
+          {detectLang(code)}
+        </span>
+        <button
+          onClick={handleCopy}
+          className={`text-xs px-3 py-1 rounded transition-colors duration-200 ${
+            copied 
+              ? 'bg-green-500 text-white' 
+              : 'bg-gray-600 hover:bg-gray-500 text-gray-200'
+          }`}
+        >
+          {copied ? '✓ 已复制' : '复制'}
+        </button>
+      </div>
+      {/* 代码内容 */}
+      <SyntaxHighlighter
+        language={detectLang(code)}
+        style={atomOneDark}
+        customStyle={{ 
+          margin: 0, 
+          padding: '1rem', 
+          fontSize: '0.875rem', 
+          lineHeight: '1.5',
+          background: '#1e1e2e',
+          borderRadius: '0 0 0.5rem 0.5rem'
+        }}
+        showLineNumbers={false}
+        wrapLines={true}
+        wrapLongLines={false}
+      >
+        {code}
+      </SyntaxHighlighter>
+    </div>
+  );
+};
 
 // ==================== 类型定义 (保持不变) ====================
 interface StartEvaluationRequest {
@@ -154,36 +214,32 @@ const formatTime = (seconds: number): string => {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
 
-// ==================== 代码展示组件 ====================
+// ==================== 代码高亮函数（保留，供 CodeBlock 使用） ====================
 const highlightCode = (code: string) => {
-  // 先转义 HTML，防止原始代码中的 < > & 破坏结构
   let result = code
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
-  // 1. 先处理多行注释 /* ... */（必须在字符串之前，避免字符串里的 /* 被误匹配）
-  // 但更好的做法是先处理字符串，因为字符串里可能有 /*
-
-  // 1. 先处理字符串（单引号和双引号）
+  // 字符串
   result = result.replace(
     /(['"])(.*?)\1/g,
     '<span class="text-green-400">$1$2$1</span>'
   );
 
-  // 2. 处理多行注释 /* ... */
+  // 多行注释
   result = result.replace(
     /\/\*[\s\S]*?\*\//g,
     '<span class="text-gray-500 italic">$&</span>'
   );
 
-  // 3. 处理单行注释 // ...
+  // 单行注释
   result = result.replace(
     /\/\/.*$/gm,
     '<span class="text-gray-500 italic">$&</span>'
   );
 
-  // 4. 处理关键字（必须在注释之后，避免注释里的关键字被高亮）
+  // 关键字
   const keywords = [
     'def', 'return', 'if', 'else', 'elif', 'for', 'while', 'class',
     'import', 'from', 'as', 'try', 'except', 'with', 'lambda',
@@ -198,7 +254,7 @@ const highlightCode = (code: string) => {
     '<span class="text-purple-400 font-semibold">$1</span>'
   );
 
-  // 5. 处理数字
+  // 数字
   result = result.replace(
     /\b(\d+)\b/g,
     '<span class="text-orange-400">$1</span>'
@@ -207,6 +263,7 @@ const highlightCode = (code: string) => {
   return result;
 };
 
+// ==================== 消息展示组件 ====================
 const ExaminerMessage: React.FC<{ text: string; codeSnippets?: string[]; hasCode?: boolean }> = ({
   text,
   codeSnippets,
@@ -230,7 +287,7 @@ const ExaminerMessage: React.FC<{ text: string; codeSnippets?: string[]; hasCode
   );
 };
 
-// ==================== 文字考试子组件 (保持不变) ====================
+// ==================== 文字考试子组件 ====================
 const OriginalStartForm: React.FC<{
   question: string;
   setQuestion: (v: string) => void;

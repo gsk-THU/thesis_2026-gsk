@@ -1,0 +1,3 @@
+需要禁止的是**时钟中断**导致的抢占。具体要关闭`sstatus`寄存器的SIE位（Supervisor Interrupt Enable），或单独屏蔽时钟中断使能。
+
+实现上我维护了一个`preempt_count`嵌套计数器，进入临界区时自增并关中断，减到零时才恢复。关键操作是用`csrci`指令清除`sstatus`中的中断使能位。在rCore的`Mutex`实现里，我加了`push_off()`和`pop_off()`封装：加锁时保存原中断状态并关闭，解锁时恢复。这样确保临界区内不会触发时钟中断进入`trap_handler`，也就不会调用`suspend_current_and_run_next`切走任务。

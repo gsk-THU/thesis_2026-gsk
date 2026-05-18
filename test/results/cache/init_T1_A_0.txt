@@ -1,0 +1,5 @@
+在rCore里，分时轮转主要靠时钟中断驱动。每次时钟中断进到`trap_handler`，会调用`suspend_current_and_run_next`，这里把当前任务状态改成`Ready`塞回队列，然后从`TaskManager`里按FIFO取出下一个任务。
+
+核心的切换在`__switch`汇编函数里，它操作的是`TaskContext`，只保存callee-saved寄存器（ra, s0-s11, sp）到当前任务的`TaskControlBlock.kernel_stack`里，然后恢复下一个任务的寄存器。这里得区分`TaskContext`和`TrapContext`——后者是陷入S态时硬件自动压栈的完整现场，而前者是任务在内核态主动切换时的轻量化保存。
+
+我之前踩过一个坑：如果在持有`spinlock`时触发调度，切回来后可能死锁，因为新任务也可能申请同一个锁。所以调度前要确保释放锁，或者把临界区设成不可抢占。另外`__switch`是naked函数，直接操作sp指针切换栈，不会破坏Rust的栈帧。当没有就绪任务时，系统会跑到`idle_task`空转，靠中断唤醒，这个边界处理在`run_tasks`循环里实现。

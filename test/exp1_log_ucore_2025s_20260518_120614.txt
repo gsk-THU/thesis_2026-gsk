@@ -1,0 +1,47 @@
+[12:06:14] [INIT] 知识库状态: {'document_count': 916, 'collection_name': 'ucore_2025s', 'embedding_model': 'BAAI/bge-large-zh-v1.5', 'dimension': 1024, 'persist_dir': '/home/gsk/chroma'}
+[12:06:14] [RUN] collection=ucore_2025s, queries=20, top_k=[1, 3, 5]
+[12:06:14]   [QUERY] [proc_01] 进程调度算法实现 (cat=process, diff=medium)
+[12:06:18]     -> recall@1=1.00, mrr=1.00, ndcg@5=0.68
+[12:06:18]   [QUERY] [proc_02] 进程 fork 和 exec 的实现原理 (cat=process, diff=hard)
+[12:06:18]     -> recall@1=1.00, mrr=1.00, ndcg@5=1.00
+[12:06:18]   [QUERY] [proc_03] 进程控制块 PCB 结构设计 (cat=process, diff=medium)
+[12:06:18]     -> recall@1=1.00, mrr=1.00, ndcg@5=0.92
+[12:06:18]   [QUERY] [mem_01] 页表遍历与地址转换机制 (cat=memory, diff=hard)
+[12:06:18]     -> recall@1=1.00, mrr=1.00, ndcg@5=1.00
+[12:06:18]   [QUERY] [mem_02] 缺页异常 page fault 处理流程 (cat=memory, diff=hard)
+[12:06:18]     -> recall@1=1.00, mrr=1.00, ndcg@5=0.85
+[12:06:18]   [QUERY] [mem_03] 内存分配与释放算法 (cat=memory, diff=medium)
+[12:06:18]     -> recall@1=1.00, mrr=1.00, ndcg@5=0.71
+[12:06:18]   [QUERY] [mem_04] 虚拟内存映射 mmap 实现 (cat=memory, diff=hard)
+[12:06:19]     -> recall@1=1.00, mrr=1.00, ndcg@5=1.00
+[12:06:19]   [QUERY] [sync_01] 信号量 semaphore 同步机制 (cat=sync, diff=medium)
+[12:06:19]     -> recall@1=1.00, mrr=1.00, ndcg@5=1.00
+[12:06:19]   [QUERY] [sync_02] 互斥锁 mutex 实现原理 (cat=sync, diff=medium)
+[12:06:19]     -> recall@1=1.00, mrr=1.00, ndcg@5=1.00
+[12:06:19]   [QUERY] [sync_03] 条件变量 condition variable (cat=sync, diff=hard)
+[12:06:19]     -> recall@1=1.00, mrr=1.00, ndcg@5=0.95
+[12:06:19]   [QUERY] [fs_01] inode 结构设计与文件索引 (cat=fs, diff=medium)
+[12:06:19]     -> recall@1=1.00, mrr=1.00, ndcg@5=0.92
+[12:06:19]   [QUERY] [fs_02] 文件系统挂载 mount 流程 (cat=fs, diff=hard)
+[12:06:19]     -> recall@1=0.00, mrr=0.50, ndcg@5=0.62
+[12:06:19]   [QUERY] [fs_03] 目录项 dentry 缓存机制 (cat=fs, diff=medium)
+[12:06:20]     -> recall@1=0.00, mrr=0.00, ndcg@5=0.00
+[12:06:20]   [QUERY] [intr_01] 中断处理程序 IRQ handler (cat=interrupt, diff=medium)
+[12:06:20]     -> recall@1=1.00, mrr=1.00, ndcg@5=0.70
+[12:06:20]   [QUERY] [intr_02] 系统调用 syscall 分发机制 (cat=interrupt, diff=hard)
+[12:06:20]     -> recall@1=1.00, mrr=1.00, ndcg@5=1.00
+[12:06:20]   [QUERY] [intr_03] 时钟中断与定时器 (cat=interrupt, diff=easy)
+[12:06:20]     -> recall@1=0.00, mrr=0.25, ndcg@5=0.46
+[12:06:20]   [QUERY] [boot_01] 内核启动流程 boot loader (cat=boot, diff=medium)
+[12:06:20]     -> recall@1=1.00, mrr=1.00, ndcg@5=1.00
+[12:06:20]   [QUERY] [boot_02] 多核 CPU 启动 AP 初始化 (cat=boot, diff=hard)
+[12:06:21]     -> recall@1=1.00, mrr=1.00, ndcg@5=0.96
+[12:06:21]   [QUERY] [comp_01] 死锁检测与避免算法 (cat=sync, diff=hard)
+[12:06:21]     -> recall@1=0.00, mrr=0.25, ndcg@5=0.43
+[12:06:21]   [QUERY] [comp_02] RCU 读拷贝更新机制 (cat=sync, diff=hard)
+[12:06:21]     -> recall@1=0.00, mrr=0.00, ndcg@5=0.00
+[12:06:21] [DONE] 共评估 20 个查询
+[12:06:21] [SAVE] 详细结果: results/exp1_ucore_2025s_20260518_120621_detail.json
+[12:06:21] [SAVE] 汇总结果: results/exp1_ucore_2025s_20260518_120621_summary.json
+[12:06:21] [SAVE] Markdown 报告: results/exp1_ucore_2025s_20260518_120621_report.md
+[12:06:21] [SAVE] 图表: results/exp1_ucore_2025s_20260518_120621_charts.png

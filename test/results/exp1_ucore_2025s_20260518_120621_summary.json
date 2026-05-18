@@ -1,0 +1,393 @@
+{
+  "collection": "ucore_2025s",
+  "total_queries": 20,
+  "timestamp": "2026-05-18T12:06:21.498165",
+  "overall": {
+    "recall@1": {
+      "mean": 0.75,
+      "median": 1.0,
+      "std": 0.44426165831931924,
+      "min": 0.0,
+      "max": 1.0
+    },
+    "source_recall@1": {
+      "mean": 0.4,
+      "median": 0.0,
+      "std": 0.5026246899500346,
+      "min": 0.0,
+      "max": 1.0
+    },
+    "recall@3": {
+      "mean": 0.8,
+      "median": 1.0,
+      "std": 0.41039134083406165,
+      "min": 0.0,
+      "max": 1.0
+    },
+    "source_recall@3": {
+      "mean": 0.4,
+      "median": 0.0,
+      "std": 0.5026246899500346,
+      "min": 0.0,
+      "max": 1.0
+    },
+    "recall@5": {
+      "mean": 0.9,
+      "median": 1.0,
+      "std": 0.30779350562554625,
+      "min": 0.0,
+      "max": 1.0
+    },
+    "source_recall@5": {
+      "mean": 0.4,
+      "median": 0.0,
+      "std": 0.5026246899500346,
+      "min": 0.0,
+      "max": 1.0
+    },
+    "mrr": {
+      "mean": 0.8,
+      "median": 1.0,
+      "std": 0.36813898977081155,
+      "min": 0.0,
+      "max": 1.0
+    },
+    "ndcg@5": {
+      "mean": 0.7602494181826583,
+      "median": 0.9213963208540731,
+      "std": 0.3179714690004902,
+      "min": 0.0,
+      "max": 1.0
+    },
+    "avg_score": {
+      "mean": 0.279071,
+      "median": 0.26451,
+      "std": 0.11634420121708733,
+      "min": 0.02894,
+      "max": 0.5082
+    },
+    "max_score": {
+      "mean": 0.329135,
+      "median": 0.3088,
+      "std": 0.12987152872621546,
+      "min": 0.0443,
+      "max": 0.5573
+    },
+    "min_score": {
+      "mean": 0.23905,
+      "median": 0.2174,
+      "std": 0.10927705253403533,
+      "min": 0.0129,
+      "max": 0.4625
+    },
+    "source_diversity": {
+      "mean": 2.8,
+      "median": 2.5,
+      "std": 1.3218806379747876,
+      "min": 1,
+      "max": 5
+    }
+  },
+  "by_category": {
+    "process": {
+      "recall@1": {
+        "mean": 1.0,
+        "median": 1.0
+      },
+      "source_recall@1": {
+        "mean": 0.6666666666666666,
+        "median": 1.0
+      },
+      "recall@3": {
+        "mean": 1.0,
+        "median": 1.0
+      },
+      "source_recall@3": {
+        "mean": 0.6666666666666666,
+        "median": 1.0
+      },
+      "recall@5": {
+        "mean": 1.0,
+        "median": 1.0
+      },
+      "source_recall@5": {
+        "mean": 0.6666666666666666,
+        "median": 1.0
+      },
+      "mrr": {
+        "mean": 1.0,
+        "median": 1.0
+      },
+      "ndcg@5": {
+        "mean": 0.8667279700402556,
+        "median": 0.9213963208540731
+      },
+      "avg_score": {
+        "mean": 0.3628266666666667,
+        "median": 0.35136
+      },
+      "max_score": {
+        "mean": 0.3875,
+        "median": 0.3645
+      },
+      "min_score": {
+        "mean": 0.3304,
+        "median": 0.3194
+      },
+      "source_diversity": {
+        "mean": 3.3333333333333335,
+        "median": 3
+      }
+    },
+    "memory": {
+      "recall@1": {
+        "mean": 1.0,
+        "median": 1.0
+      },
+      "source_recall@1": {
+        "mean": 0.25,
+        "median": 0.0
+      },
+      "recall@3": {
+        "mean": 1.0,
+        "median": 1.0
+      },
+      "source_recall@3": {
+        "mean": 0.25,
+        "median": 0.0
+      },
+      "recall@5": {
+        "mean": 1.0,
+        "median": 1.0
+      },
+      "source_recall@5": {
+        "mean": 0.25,
+        "median": 0.0
+      },
+      "mrr": {
+        "mean": 1.0,
+        "median": 1.0
+      },
+      "ndcg@5": {
+        "mean": 0.8899480270497271,
+        "median": 0.9251724527673773
+      },
+      "avg_score": {
+        "mean": 0.29675,
+        "median": 0.31374
+      },
+      "max_score": {
+        "mean": 0.361425,
+        "median": 0.36575
+      },
+      "min_score": {
+        "mean": 0.2426,
+        "median": 0.23045
+      },
+      "source_diversity": {
+        "mean": 2.75,
+        "median": 2.5
+      }
+    },
+    "sync": {
+      "recall@1": {
+        "mean": 0.6,
+        "median": 1.0
+      },
+      "source_recall@1": {
+        "mean": 0.6,
+        "median": 1.0
+      },
+      "recall@3": {
+        "mean": 0.6,
+        "median": 1.0
+      },
+      "source_recall@3": {
+        "mean": 0.6,
+        "median": 1.0
+      },
+      "recall@5": {
+        "mean": 0.8,
+        "median": 1.0
+      },
+      "source_recall@5": {
+        "mean": 0.6,
+        "median": 1.0
+      },
+      "mrr": {
+        "mean": 0.65,
+        "median": 1.0
+      },
+      "ndcg@5": {
+        "mean": 0.676186069182431,
+        "median": 0.9502537878387615
+      },
+      "avg_score": {
+        "mean": 0.295788,
+        "median": 0.34058
+      },
+      "max_score": {
+        "mean": 0.35118,
+        "median": 0.3702
+      },
+      "min_score": {
+        "mean": 0.25232,
+        "median": 0.3082
+      },
+      "source_diversity": {
+        "mean": 2,
+        "median": 1
+      }
+    },
+    "fs": {
+      "recall@1": {
+        "mean": 0.3333333333333333,
+        "median": 0.0
+      },
+      "source_recall@1": {
+        "mean": 0.6666666666666666,
+        "median": 1.0
+      },
+      "recall@3": {
+        "mean": 0.6666666666666666,
+        "median": 1.0
+      },
+      "source_recall@3": {
+        "mean": 0.6666666666666666,
+        "median": 1.0
+      },
+      "recall@5": {
+        "mean": 0.6666666666666666,
+        "median": 1.0
+      },
+      "source_recall@5": {
+        "mean": 0.6666666666666666,
+        "median": 1.0
+      },
+      "mrr": {
+        "mean": 0.5,
+        "median": 0.5
+      },
+      "ndcg@5": {
+        "mean": 0.515148946952637,
+        "median": 0.6240505200038379
+      },
+      "avg_score": {
+        "mean": 0.2104,
+        "median": 0.21148
+      },
+      "max_score": {
+        "mean": 0.25229999999999997,
+        "median": 0.239
+      },
+      "min_score": {
+        "mean": 0.1853,
+        "median": 0.195
+      },
+      "source_diversity": {
+        "mean": 2.3333333333333335,
+        "median": 2
+      }
+    },
+    "interrupt": {
+      "recall@1": {
+        "mean": 0.6666666666666666,
+        "median": 1.0
+      },
+      "source_recall@1": {
+        "mean": 0.0,
+        "median": 0.0
+      },
+      "recall@3": {
+        "mean": 0.6666666666666666,
+        "median": 1.0
+      },
+      "source_recall@3": {
+        "mean": 0.0,
+        "median": 0.0
+      },
+      "recall@5": {
+        "mean": 1.0,
+        "median": 1.0
+      },
+      "source_recall@5": {
+        "mean": 0.0,
+        "median": 0.0
+      },
+      "mrr": {
+        "mean": 0.75,
+        "median": 1.0
+      },
+      "ndcg@5": {
+        "mean": 0.7212004745163831,
+        "median": 0.7012177930745205
+      },
+      "avg_score": {
+        "mean": 0.26656,
+        "median": 0.27006
+      },
+      "max_score": {
+        "mean": 0.3343,
+        "median": 0.3224
+      },
+      "min_score": {
+        "mean": 0.21603333333333335,
+        "median": 0.2169
+      },
+      "source_diversity": {
+        "mean": 3,
+        "median": 2
+      }
+    },
+    "boot": {
+      "recall@1": {
+        "mean": 1.0,
+        "median": 1.0
+      },
+      "source_recall@1": {
+        "mean": 0.0,
+        "median": 0.0
+      },
+      "recall@3": {
+        "mean": 1.0,
+        "median": 1.0
+      },
+      "source_recall@3": {
+        "mean": 0.0,
+        "median": 0.0
+      },
+      "recall@5": {
+        "mean": 1.0,
+        "median": 1.0
+      },
+      "source_recall@5": {
+        "mean": 0.0,
+        "median": 0.0
+      },
+      "mrr": {
+        "mean": 1.0,
+        "median": 1.0
+      },
+      "ndcg@5": {
+        "mean": 0.9775168675071382,
+        "median": 0.9775168675071382
+      },
+      "avg_score": {
+        "mean": 0.19806,
+        "median": 0.19806
+      },
+      "max_score": {
+        "mean": 0.2294,
+        "median": 0.2294
+      },
+      "min_score": {
+        "mean": 0.1769,
+        "median": 0.1769
+      },
+      "source_diversity": {
+        "mean": 4.5,
+        "median": 4.5
+      }
+    }
+  }
+}

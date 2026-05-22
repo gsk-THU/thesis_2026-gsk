@@ -1,0 +1,93 @@
+{
+  "generated_at": "2026-05-19T01:00:50.102851",
+  "os_type": "ucore",
+  "experiment_requirement": "ch3 中，我们的系统已经能够支持多个任务分时轮流运行，我们希望引入一个新的系统调用 sys_trace （syscall ID: 410）用来追踪当前任务系统调用的历史信息、并进行任务内存的读写。定义如下：\r\n\r\nint sys_trace(int trace_request, unsigned long id, uint8_t data);\r\nsyscall ID: 410\r\n\r\n调用规范：\r\n这个系统调用有三种功能，根据 trace_request 的值不同，执行不同的操作：\r\n\r\n如果 trace_request 为 0，则 id 应被视作 uint8_t * ，表示读取当前任务 id 地址处一个字节的无符号整数值。此时应忽略 data 参数。返回值为 id 地址处的值。\r\n\r\n如果 trace_request 为 1，则 id 应被视作 uint8_t * ，表示写入 data （作为 uint8_t，即只考虑最低位的一个字节）到该用户程序 id 地址处。返回值应为0。\r\n\r\n如果 trace_request 为 2，表示查询当前任务调用编号为 id 的系统调用的次数，返回值为这个调用次数。 本次调用也计入统计 。\r\n\r\n否则，忽略其他参数，返回值为 -1。\r\n\r\n说明：\r\nuint8_t 是C语言中的标准类型，表示一个无符号的8位整数。在代码中你可能需要使用 uint8 替代。\r\n\r\n你可能会注意到，这个调用的读写并不安全，使用不当可能导致崩溃。这是因为在下一章节实现地址空间之前，系统中缺乏隔离机制。所以我们 不要求你实现安全检查机制，只需通过测试用例即可 。\r\n\r\n你还可能注意到，这个系统调用读写本任务内存的功能并不是很有用。这是因为作业的灵感来源 syscall 主要依靠 trace 功能追踪其他任务的信息，但在本章节我们还没有进程、线程等概念，所以简化了操作，只要求追踪自身的信息。",
+  "experiment_title": "ch3 中，我们的系统已经能够支持多个任务分时轮流运行，我们希望引入一个新的系统调用 sys_tra...",
+  "summary": "基于1个修改文件和0个新增文件生成4个问题（OS类型: ucore, RAG检索: 4次）",
+  "total_questions": 4,
+  "questions": [
+    {
+      "id": 1,
+      "category": "general",
+      "question": "\n在`sys_trace`的实现中，对于`trace_request`为0和1的情况，代码直接对用户传入的`id`参数进行解引用操作：\n<code>\ncase 0:\n/* 读取当前任务 id 地址处一个字节 */\nreturn *(uint8_t *)id;\ncase 1:\n/* 写入 data 的最低位字节到 id 地址处 */\n*(uint8_t *)id = data;\nreturn 0;\n</code>\n根据课程资料，ch3章节尚未实现地址空间隔离机制（页表机制将在ch4引入）。请分析：",
+      "rationale": "",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": []
+    },
+    {
+      "id": 2,
+      "category": "general",
+      "question": "这种直接解引用用户传入地址的方式，在本实验环境下（无地址空间隔离）可能会导致什么具体问题？举例说明什么情况下会导致系统崩溃。",
+      "rationale": "",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": []
+    },
+    {
+      "id": 3,
+      "category": "general",
+      "question": "实验说明中提到\"不要求你实现安全检查机制\"，这种简化设计在OS教学中的意义是什么？与真实操作系统（如后续章节实现的带地址空间隔离的系统）中的内存访问机制有何本质区别？",
+      "rationale": "",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": []
+    },
+    {
+      "id": 4,
+      "category": "general",
+      "question": "观察case 2中对`id`的边界检查（`if (id < MAX_SYSCALL_NUM)`），为什么读取系统调用计数时需要边界检查，而直接内存读写（case 0/1）却不需要？这种设计是否意味着case 2比case 0/1\"更安全\"？\n**出题理由**: 考察学生对ch3架构特点（无MMU、无地址空间隔离）的理解，以及对系统调用安全性和边界检查一致性的认识。问题引导学生思考：在内核与用户态共享地址空间的简化模型中，任意指针解引用可能导致内核崩溃；同时通过对比case 0/1与case 2的处理方式，检验学生是否理解\"有检查边界\"与\"真正安全\"的区别——case 2的数组访问保护的是内核数据结构，而case 0/1的缺失保护反映的是本章节架构的局限性，而非设计选择。",
+      "rationale": "",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": []
+    }
+  ],
+  "diff_summary": {
+    "added_files": [],
+    "deleted_files": [],
+    "modified_files": [
+      "os/syscall.c"
+    ],
+    "summary": "新增文件: 0个\n删除文件: 0个\n修改文件: 1个\n未变文件: 30个\n\n主要修改:\n  - os/syscall.c (变更行: 29行)"
+  },
+  "metadata": {
+    "diff_summary": "新增文件: 0个\n删除文件: 0个\n修改文件: 1个\n未变文件: 30个\n\n主要修改:\n  - os/syscall.c (变更行: 29行)",
+    "total_files": 62,
+    "raw_response": "## 问题1 [implementation]\n在`sys_trace`的实现中，对于`trace_request`为0和1的情况，代码直接对用户传入的`id`参数进行解引用操作：\n\n<code>\ncase 0:\n    /* 读取当前任务 id 地址处一个字节 */\n    return *(uint8_t *)id;\ncase 1:\n    /* 写入 data 的最低位字节到 id 地址处 */\n    *(uint8_t *)id = data;\n    return 0;\n</code>\n\n根据课程资料，ch3章节尚未实现地址空间隔离机制（页表机制将在ch4引入）。请分析：\n\n1. 这种直接解引用用户传入地址的方式，在本实验环境下（无地址空间隔离）可能会导致什么具体问题？举例说明什么情况下会导致系统崩溃。\n2. 实验说明中提到\"不要求你实现安全检查机制\"，这种简化设计在OS教学中的意义是什么？与真实操作系统（如后续章节实现的带地址空间隔离的系统）中的内存访问机制有何本质区别？\n3. 观察case 2中对`id`的边界检查（`if (id < MAX_SYSCALL_NUM)`），为什么读取系统调用计数时需要边界检查，而直接内存读写（case 0/1）却不需要？这种设计是否意味着case 2比case 0/1\"更安全\"？\n\n**出题理由**: 考察学生对ch3架构特点（无MMU、无地址空间隔离）的理解，以及对系统调用安全性和边界检查一致性的认识。问题引导学生思考：在内核与用户态共享地址空间的简化模型中，任意指针解引用可能导致内核崩溃；同时通过对比case 0/1与case 2的处理方式，检验学生是否理解\"有检查边界\"与\"真正安全\"的区别——case 2的数组访问保护的是内核数据结构，而case 0/1的缺失保护反映的是本章节架构的局限性，而非设计选择。",
+    "context_length": 9408,
+    "use_kimi": true,
+    "os_type": "ucore",
+    "rag_enabled": true,
+    "rag_tool_calls": [
+      {
+        "tool": "search_by_lab",
+        "arguments": {
+          "lab_name": "ch3"
+        }
+      },
+      {
+        "tool": "search_os_concept",
+        "arguments": {
+          "concept": "系统调用",
+          "detail_level": "standard"
+        }
+      },
+      {
+        "tool": "search_by_code_symbol",
+        "arguments": {
+          "symbol_name": "curr_proc",
+          "context": "获取当前任务"
+        }
+      },
+      {
+        "tool": "search_os_concept",
+        "arguments": {
+          "concept": "地址空间",
+          "detail_level": "standard"
+        }
+      }
+    ],
+    "rag_results_length": 7536
+  }
+}

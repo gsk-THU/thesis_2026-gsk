@@ -125,9 +125,13 @@ interface FinalEvaluationResult {
 }
 
 interface OralExamStartResponse {
-  evaluation_id: string;
+  evaluation_id?: string;
+  evaluationId?: string;
+  id?: string;
   status: string;
   websocket_url: string;
+  status_url?: string;
+  result_url?: string;
   config: {
     sample_rate: number;
     language: string;
@@ -193,10 +197,26 @@ async function startOralExam(data: any): Promise<OralExamStartResponse> {
   return res.json();
 }
 
-async function fetchExamResult(evaluation_id: string): Promise<any> {
-  const res = await fetch(`${API_BASE_URL}/api/evaluation/${evaluation_id}`);
-  if (!res.ok) throw new Error('获取结果失败');
-  return res.json();
+const resolveEvaluationId = (data: any): string => {
+  return data?.evaluation_id || data?.evaluationId || data?.id || '';
+};
+
+async function fetchExamResult(evaluationId: string): Promise<any> {
+  if (!evaluationId?.trim()) {
+    throw new Error('evaluationId 为空，已阻止请求 /api/evaluation/');
+  }
+
+  const res = await fetch(
+    `${API_BASE_URL}/api/oral-exam/${encodeURIComponent(evaluationId)}/result`
+  );
+
+  const payload = await res.json().catch(() => null);
+
+  if (!res.ok) {
+    throw new Error(payload?.detail || payload?.message || '获取结果失败');
+  }
+
+  return payload;
 }
 
 // ==================== 工具函数 ====================
@@ -655,6 +675,14 @@ const OralExamination: React.FC<{ osOnly?: boolean }> = ({ osOnly = false }) => 
   // 会话状态
   const [phase, setPhase] = useState<'prepare' | 'examining' | 'grading' | 'result'>('prepare');
   const [evalId, setEvalId] = useState<string>('');
+  const evalIdRef = useRef<string>('');
+
+  const setSessionEvalId = useCallback((id: string) => {
+    if (!id?.trim()) return;
+    evalIdRef.current = id;
+    setEvalId(id);
+    console.log('[OralExam] evaluation_id set:', id);
+  }, []);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
   const [isExaminerSpeaking, setIsExaminerSpeaking] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -1006,15 +1034,43 @@ const OralExamination: React.FC<{ osOnly?: boolean }> = ({ osOnly = false }) => 
           }
           break;
 
-        case 'exam_complete':
-          setPhase('grading');
-          setCurrentHint('评估中...');
+        case 'exam_complete': {
+          const completedId = resolveEvaluationId(msg) || evalIdRef.current || evalId;
+
+          if (completedId) {
+            setSessionEvalId(completedId);
+          } else {
+            console.error('[OralExam] exam_complete 缺少 evaluation_id:', msg);
+          }
+
           stopSilenceTimer();
+
           if (isRecording) {
             stopRecording();
           }
-          setTimeout(() => fetchResultLoop(evalId), 3000);
+
+          // 后端 WebSocket 已经返回完整评分结果，优先直接展示，避免再用空 ID 轮询
+          if (msg.result) {
+            setFinalResult({
+              ...msg.result,
+              evaluation_id: msg.result.evaluation_id || completedId,
+            });
+            setCurrentHint('评估完成');
+            setPhase('result');
+            break;
+          }
+
+          setPhase('grading');
+          setCurrentHint('评估中...');
+
+          if (completedId) {
+            setTimeout(() => fetchResultLoop(completedId), 1000);
+          } else {
+            setCurrentHint('评估完成，但前端缺少 evaluation_id，无法拉取结果');
+          }
+
           break;
+        }
 
         case 'interrupted':
           stopCurrentPlayback();
@@ -1033,6 +1089,10 @@ const OralExamination: React.FC<{ osOnly?: boolean }> = ({ osOnly = false }) => 
 
   const connectWebSocket = useCallback(
     (url: string, id: string) => {
+      if (id) {
+        setSessionEvalId(id);
+      }
+
       setConnectionStatus('connecting');
       const ws = new WebSocket(url);
       wsRef.current = ws;
@@ -1075,22 +1135,40 @@ const OralExamination: React.FC<{ osOnly?: boolean }> = ({ osOnly = false }) => 
         }
       };
     },
-    [handleWebSocketMessage, stopCurrentPlayback, stopSilenceTimer, stopRecordingTimer, clearAutoStopTimer, isRecording]
+    [handleWebSocketMessage, stopCurrentPlayback, stopSilenceTimer, stopRecordingTimer, clearAutoStopTimer, setSessionEvalId, isRecording]
   );
 
-  const fetchResultLoop = useCallback(async (id: string) => {
+  const fetchResultLoop = useCallback(async (id?: string) => {
+    const resolvedId = id || evalIdRef.current;
+
+    if (!resolvedId?.trim()) {
+      console.error('[OralExam] fetchResultLoop blocked: empty evaluation_id', {
+        id,
+        ref: evalIdRef.current,
+        state: evalId,
+      });
+      setCurrentHint('缺少 evaluation_id，无法查询评分结果');
+      return;
+    }
+
     try {
-      const data = await fetchExamResult(id);
-      if (data.status === 'completed') {
-        setFinalResult(data);
+      const payload = await fetchExamResult(resolvedId);
+      const result = payload?.result || payload?.final_result || payload;
+
+      if (payload?.has_result || result?.overall_assessment || result?.status === 'completed') {
+        setFinalResult({
+          ...result,
+          evaluation_id: result?.evaluation_id || resolvedId,
+        });
         setPhase('result');
       } else {
-        setTimeout(() => fetchResultLoop(id), 2000);
+        setTimeout(() => fetchResultLoop(resolvedId), 2000);
       }
     } catch (err) {
-      setTimeout(() => fetchResultLoop(id), 5000);
+      console.error('[OralExam] fetchResultLoop failed:', err);
+      setTimeout(() => fetchResultLoop(resolvedId), 5000);
     }
-  }, []);
+  }, [evalId]);
 
   const endExam = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -1130,9 +1208,14 @@ const OralExamination: React.FC<{ osOnly?: boolean }> = ({ osOnly = false }) => 
           original_answer: originalAnswer,
           student_id: studentId || undefined,
         });
-        setEvalId(resp.evaluation_id);
+        const id = resolveEvaluationId(resp);
+        if (!id) {
+          throw new Error('后端未返回 evaluation_id: ' + JSON.stringify(resp));
+        }
+
+        setSessionEvalId(id);
         setIsInitializing(false);
-        connectWebSocket(resp.websocket_url, resp.evaluation_id);
+        connectWebSocket(resp.websocket_url, id);
       } else {
         // OS实验模式
         if (!experimentRequirement.trim() || !beforeZip || !afterZip) {
@@ -1152,9 +1235,14 @@ const OralExamination: React.FC<{ osOnly?: boolean }> = ({ osOnly = false }) => 
         });
         if (!resp.ok) throw new Error(await resp.text());
         const data = await resp.json();
-        setEvalId(data.evaluation_id);
+        const id = resolveEvaluationId(data);
+        if (!id) {
+          throw new Error('后端未返回 evaluation_id: ' + JSON.stringify(data));
+        }
+
+        setSessionEvalId(id);
         setIsInitializing(false);
-        connectWebSocket(data.websocket_url, data.evaluation_id);
+        connectWebSocket(data.websocket_url, id);
       }
     } catch (err: any) {
       setIsInitializing(false);

@@ -1,0 +1,63 @@
+重新实现 sys_gettimeofday 以及 sys_trace
+引入虚存机制后，原来内核的 sys_gettimeofday 和 sys_trace 函数实现就无效了。 请你重写这两个系统调用的代码，恢复其正常功能。
+
+此外，由于本章我们有了地址空间作为隔离机制，所以 sys_trace 需要考虑一些额外的情况：
+
+在读取（trace_request 为 0）时，如果对应地址用户不可见或不可读，则返回值应为 -1（int 的 -1，而非 uint8_t）。
+
+在写入（trace_request 为 1）时，如果对应地址用户不可见或不可写，则返回值应为 -1（int 的 -1，而非 uint8_t）。
+
+mmap 匿名映射
+mmap 在 Linux 中主要用于在内存中映射文件，本次实验简化它的功能，仅使用匿名映射来申请内存。
+
+请实现 mmap 和 munmap 系统调用，mmap 定义如下：
+
+int mmap(void* start, unsigned long long len, int prot, int flags)
+syscall ID：222
+
+功能：申请长度为 len 字节的匿名物理内存（不要求实际物理内存位置，可以随便找一块），并映射到 addr 开始的虚拟地址，内存页属性为 prot。
+
+参数：
+start：需要映射的虚存起始地址。
+
+len：映射字节长度，可以为 0。
+
+prot：第 0 位表示是否可读，第 1 位表示是否可写，第 2 位表示是否可执行。其他位无效且必须为0。
+
+flags：默认为 MAP_ANONYMOUS，可忽略该参数。
+
+返回值:
+成功返回 0，错误返回 -1。
+
+说明：
+为了简单， addr 要求按页对齐(否则报错)， len 可直接按页上取整。
+
+为了简单，不考虑分配失败时的页回收。
+
+flags 参数留待后续实验拓展。
+
+错误：
+[addr, addr + len) 存在已经被映射的页。
+
+物理内存不足。
+
+prot & ~0x7 == 0， prot 其他位必须为 0
+
+prot & 0x7 != 0，不可读不可写不可执行的内存无意义
+
+munmap 系统调用定义如下：
+
+int munmap(void* start, unsigned long long len)
+syscall ID：215
+
+功能：取消到虚拟地址区间 [start, start + len) 的映射。
+
+参数和返回值：参考 mmap
+
+说明：
+为了简单，参数错误时不考虑内存的恢复和回收。
+
+错误：
+[start, start + len) 中存在未被映射的虚存。
+
+正确实现后，你的 os 应该能够正确运行 ch4_* 对应的一些测试用例，make test BASE=0 来执行测试。

@@ -12,13 +12,14 @@ import asyncio
 import json
 import logging
 import re
+from collections import deque
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from enum import Enum
 
-from fastapi import FastAPI, HTTPException, WebSocket, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, WebSocket, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from voice_oral_exam import VoiceOralExamSession, oral_sessions, handle_oral_exam_ws, OSOralExamSession
@@ -155,12 +156,65 @@ class EvaluationStorage:
     def get(self, eval_id: str) -> Optional[Dict]:
         return self._store.get(eval_id)
 
+    def recent_ids(self, limit: int = 10) -> List[str]:
+        return list(self._store.keys())[-limit:]
+
+    def debug_summary(self, limit: int = 10) -> List[Dict[str, Any]]:
+        items = []
+        for eval_id in self.recent_ids(limit):
+            data = self._store.get(eval_id, {})
+            items.append({
+                "evaluation_id": eval_id,
+                "status": data.get("status"),
+                "exam_type": data.get("exam_type"),
+                "student_id": data.get("student_id"),
+                "subject": data.get("subject"),
+                "course": data.get("course"),
+                "created_at": data.get("created_at"),
+                "updated_at": data.get("updated_at"),
+                "has_final_result": bool(data.get("final_result")),
+            })
+        return items
+
     def update(self, eval_id: str, data: Dict):
         if eval_id in self._store:
             self._store[eval_id].update(data)
             self._store[eval_id]["updated_at"] = datetime.now().isoformat()
 
 storage = EvaluationStorage()
+
+debug_events = deque(maxlen=200)
+
+
+def _request_debug_info(request: Optional[Request]) -> Dict[str, Any]:
+    if request is None:
+        return {}
+    headers = request.headers
+    return {
+        "method": request.method,
+        "url": str(request.url),
+        "path": request.url.path,
+        "query": str(request.url.query),
+        "client": request.client.host if request.client else None,
+        "referer": headers.get("referer"),
+        "origin": headers.get("origin"),
+        "user_agent": headers.get("user-agent"),
+        "x_requested_with": headers.get("x-requested-with"),
+    }
+
+
+def record_debug_event(event_type: str, request: Optional[Request] = None, **extra) -> Dict[str, Any]:
+    event = {
+        "time": datetime.now().isoformat(),
+        "event": event_type,
+        "request": _request_debug_info(request),
+        "known_evaluations": storage.debug_summary(10),
+        "active_oral_sessions": list(oral_sessions.keys())[-10:],
+        **extra,
+    }
+    debug_events.append(event)
+    logger.warning("[API-DEBUG] %s", json.dumps(event, ensure_ascii=False, default=str))
+    return event
 
 
 # ==================== OS 实验提问器单例 ====================
@@ -390,6 +444,38 @@ async def root():
     }
 
 
+@app.get("/api/evaluation/")
+async def evaluation_missing_id(request: Request):
+    """
+    Guard for frontend bugs that call /api/evaluation/ without an id.
+    """
+    record_debug_event(
+        "missing_evaluation_id",
+        request,
+        diagnosis=(
+            "Frontend called /api/evaluation/ without appending evaluation_id. "
+            "Check request.referer and known_evaluations to find which page/state lost the id."
+        ),
+    )
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            "缺少 evaluation_id。请调用 GET /api/evaluation/{evaluation_id}；"
+            "OS语音口试结果也可调用 GET /api/oral-exam/{evaluation_id}/result。"
+        )
+    )
+
+
+@app.get("/api/debug/recent")
+async def get_recent_debug_events(limit: int = 50):
+    limit = max(1, min(limit, 200))
+    return {
+        "events": list(debug_events)[-limit:],
+        "known_evaluations": storage.debug_summary(20),
+        "active_oral_sessions": list(oral_sessions.keys()),
+    }
+
+
 @app.post("/api/evaluation/start", response_model=ExamQuestionsResponse)
 async def start_evaluation(request: StartEvaluationRequest):
     """第一阶段：提交原始问题与答案，生成考官深度测试问题（原有模式）"""
@@ -402,6 +488,13 @@ async def start_evaluation(request: StartEvaluationRequest):
             "student_id": request.student_id,
             "subject": request.subject
         })
+        record_debug_event(
+            "evaluation_created",
+            evaluation_id=eval_id,
+            endpoint="/api/evaluation/start",
+            student_id=request.student_id,
+            subject=request.subject,
+        )
 
         storage.update(eval_id, {"status": "generating_questions"})
         agent_resp = await generate_exam_questions_async(
@@ -631,6 +724,7 @@ async def os_experiment_diff(
 
 @app.post("/api/oral-exam/os-start")
 async def start_os_oral_exam(
+    request: Request,
     experiment_requirement: str = Form(..., description="实验要求描述"),
     before_zip: UploadFile = File(..., description="修改前的代码zip"),
     after_zip: UploadFile = File(..., description="修改后的代码zip"),
@@ -717,6 +811,19 @@ async def start_os_oral_exam(
             ],
             "status": "oral_exam_ready"
         })
+        record_debug_event(
+            "oral_os_evaluation_created",
+            request,
+            evaluation_id=eval_id,
+            endpoint="/api/oral-exam/os-start",
+            student_id=student_id,
+            subject=subject,
+            course=course,
+            question_count=len(question_set.questions),
+            websocket_url=f"ws://localhost:8000/ws/oral-exam/{eval_id}",
+            status_url=f"/api/evaluation/{eval_id}",
+            result_url=f"/api/oral-exam/{eval_id}/result",
+        )
 
         session = OSOralExamSession(
             evaluation_id=eval_id,
@@ -730,6 +837,8 @@ async def start_os_oral_exam(
             "evaluation_id": eval_id,
             "status": "ready",
             "websocket_url": f"ws://localhost:8000/ws/oral-exam/{eval_id}",
+            "status_url": f"/api/evaluation/{eval_id}",
+            "result_url": f"/api/oral-exam/{eval_id}/result",
             "course": course,
             "total_questions": len(question_set.questions),
             "config": {
@@ -755,11 +864,36 @@ async def start_os_oral_exam(
 # ==================== 原有评分流程（两种模式共用）====================
 
 @app.post("/api/evaluation/{evaluation_id}/complete", response_model=FinalEvaluationResult)
-async def complete_evaluation(evaluation_id: str, request: SubmitExamAnswersRequest):
+async def complete_evaluation(evaluation_id: str, request: SubmitExamAnswersRequest, http_request: Request):
     """
     第二阶段：提交考官问题回答，由LLM委员会进行完整评分。
     原有模式和OS实验模式共用此接口。
     """
+    if evaluation_id.strip().lower() in {"undefined", "null", "none", "nan"}:
+        event = record_debug_event(
+            "invalid_evaluation_id_literal",
+            http_request,
+            evaluation_id=evaluation_id,
+            diagnosis=(
+                "Frontend appended a placeholder literal instead of the real evaluation_id. "
+                "Check the state variable used to build /api/evaluation/{evaluation_id}."
+            ),
+        )
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "invalid_evaluation_id",
+                "evaluation_id": evaluation_id,
+                "debug": event,
+            }
+        )
+
+    record_debug_event(
+        "evaluation_complete_requested",
+        http_request,
+        evaluation_id=evaluation_id,
+        exists=bool(storage.get(evaluation_id)),
+    )
     eval_data = storage.get(evaluation_id)
     if not eval_data:
         raise HTTPException(status_code=404, detail="评估会话未找到")
@@ -864,7 +998,32 @@ async def complete_evaluation(evaluation_id: str, request: SubmitExamAnswersRequ
 
 
 @app.get("/api/evaluation/{evaluation_id}")
-async def get_evaluation_status(evaluation_id: str):
+async def get_evaluation_status(evaluation_id: str, request: Request):
+    if evaluation_id.strip().lower() in {"undefined", "null", "none", "nan"}:
+        event = record_debug_event(
+            "invalid_evaluation_id_literal",
+            request,
+            evaluation_id=evaluation_id,
+            diagnosis=(
+                "Frontend appended a placeholder literal instead of the real evaluation_id. "
+                "Check the state variable used to build /api/evaluation/{evaluation_id}."
+            ),
+        )
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "invalid_evaluation_id",
+                "evaluation_id": evaluation_id,
+                "debug": event,
+            }
+        )
+
+    record_debug_event(
+        "evaluation_status_requested",
+        request,
+        evaluation_id=evaluation_id,
+        exists=bool(storage.get(evaluation_id)),
+    )
     """查询评估状态"""
     eval_data = storage.get(evaluation_id)
     if not eval_data:
@@ -873,8 +1032,10 @@ async def get_evaluation_status(evaluation_id: str):
     response = {
         "evaluation_id": evaluation_id,
         "status": eval_data["status"],
+        "exam_type": eval_data.get("exam_type"),
         "created_at": eval_data["created_at"],
-        "updated_at": eval_data.get("updated_at")
+        "updated_at": eval_data.get("updated_at"),
+        "has_result": bool(eval_data.get("final_result"))
     }
 
     if eval_data["status"] == "completed":
@@ -882,6 +1043,7 @@ async def get_evaluation_status(evaluation_id: str):
         assessment = final.get("overall_assessment", {})
         response["understanding_level"] = assessment.get("understanding_level")
         response["confidence"] = assessment.get("confidence")
+        response["result_url"] = f"/api/oral-exam/{evaluation_id}/result"
 
     return response
 
@@ -920,6 +1082,8 @@ async def start_oral_exam(request: OralExamStartRequest):
             "evaluation_id": eval_id,
             "status": "ready",
             "websocket_url": f"ws://localhost:8000/ws/oral-exam/{eval_id}",
+            "status_url": f"/api/evaluation/{eval_id}",
+            "result_url": f"/api/oral-exam/{eval_id}/result",
             "config": {
                 "sample_rate": 24000,
                 "language": "zh",
@@ -953,6 +1117,44 @@ async def get_dialogue_history(evaluation_id: str):
 
 
 # ==================== 启动入口 ====================
+
+@app.get("/api/oral-exam/{evaluation_id}/result")
+async def get_oral_exam_result(evaluation_id: str, request: Request):
+    """
+    Query oral-exam grading result by evaluation_id.
+    OS oral grading is produced inside the WebSocket flow; the frontend should
+    prefer the exam_complete.result payload, and use this endpoint after refresh.
+    """
+    record_debug_event(
+        "oral_exam_result_requested",
+        request,
+        evaluation_id=evaluation_id,
+        exists=bool(storage.get(evaluation_id)),
+    )
+    eval_data = storage.get(evaluation_id)
+    if not eval_data:
+        raise HTTPException(status_code=404, detail="口试会话不存在")
+
+    result = eval_data.get("final_result")
+    response = {
+        "evaluation_id": evaluation_id,
+        "status": eval_data.get("status"),
+        "exam_type": eval_data.get("exam_type"),
+        "course": eval_data.get("course"),
+        "created_at": eval_data.get("created_at"),
+        "updated_at": eval_data.get("updated_at"),
+        "has_result": bool(result),
+        "status_url": f"/api/evaluation/{evaluation_id}",
+        "dialogue_url": f"/api/oral-exam/{evaluation_id}/dialogue",
+    }
+
+    if result:
+        response["result"] = result
+    else:
+        response["message"] = "口试尚未完成评分，请等待 WebSocket 的 exam_complete 事件"
+
+    return response
+
 
 if __name__ == "__main__":
     import uvicorn

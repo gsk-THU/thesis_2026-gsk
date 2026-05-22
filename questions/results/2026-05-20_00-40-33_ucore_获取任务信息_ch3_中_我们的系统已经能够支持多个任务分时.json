@@ -1,0 +1,159 @@
+{
+  "generated_at": "2026-05-20T00:40:33.489713",
+  "os_type": "ucore",
+  "experiment_requirement": "获取任务信息\nch3 中，我们的系统已经能够支持多个任务分时轮流运行，我们希望引入一个新的系统调用 sys_trace （syscall ID: 410）用来追踪当前任务系统调用的历史信息、并进行任务内存的读写。定义如下：\n\nint sys_trace(int trace_request, unsigned long id, uint8_t data);\nsyscall ID: 410\n\n调用规范：\n这个系统调用有三种功能，根据 trace_request 的值不同，执行不同的操作：\n\n如果 trace_request 为 0，则 id 应被视作 uint8_t * ，表示读取当前任务 id 地址处一个字节的无符号整数值。此时应忽略 data 参数。返回值为 id 地址处的值。\n\n如果 trace_request 为 1，则 id 应被视作 uint8_t * ，表示写入 data （作为 uint8_t，即只考虑最低位的一个字节）到该用户程序 id 地址处。返回值应为0。\n\n如果 trace_request 为 2，表示查询当前任务调用编号为 id 的系统调用的次数，返回值为这个调用次数。 本次调用也计入统计 。\n\n否则，忽略其他参数，返回值为 -1。\n\n说明：\nuint8_t 是C语言中的标准类型，表示一个无符号的8位整数。在代码中你可能需要使用 uint8 替代。\n\n你可能会注意到，这个调用的读写并不安全，使用不当可能导致崩溃。这是因为在下一章节实现地址空间之前，系统中缺乏隔离机制。所以我们 不要求你实现安全检查机制，只需通过测试用例即可 。\n\n你还可能注意到，这个系统调用读写本任务内存的功能并不是很有用。这是因为作业的灵感来源 syscall 主要依靠 trace 功能追踪其他任务的信息，但在本章节我们还没有进程、线程等概念，所以简化了操作，只要求追踪自身的信息。",
+  "experiment_title": "获取任务信息\nch3 中，我们的系统已经能够支持多个任务分时轮流运行，我们希望引入一个新的系统调用 ...",
+  "summary": "基于0个修改文件和32个新增文件生成4个问题（OS类型: ucore, RAG检索: 4次）",
+  "total_questions": 4,
+  "questions": [
+    {
+      "id": 1,
+      "category": "implementation",
+      "question": "请看这段 `sys_trace` 系统调用的实现代码：\n\n\n\n这段代码在处理 `trace_request = 2` 时，直接使用 `id` 作为数组索引访问 `syscall_counts`。考虑到 `id` 是用户传入的 `unsigned long` 类型，这种实现存在什么潜在风险？结合ch3实验要求中提到的\"不要求你实现安全检查机制\"，请解释为什么在ch3中可以暂时忽略这种风险，而在ch4实现地址空间隔离后必须添加边界检查？",
+      "rationale": "考察学生对用户输入验证的理解，以及ch3（无MMU）与ch4（有地址空间隔离）架构差异的认识。学生需要意识到直接解引用用户传入指针/索引的危险性，以及实验简化条件的合理性。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "uint64_t sys_trace(int trace_request, unsigned long id, uint8_t data) {\n    struct TaskControlBlock *current = get_current_task();\n    switch (trace_request) {\n        case 0:\n            return *(uint8_t *)id;  // 直接读取用户态地址\n        case 1:\n            *(uint8_t *)id = data;  // 直接写入用户态地址\n            return 0;\n        case 2:\n            return current->syscall_counts[id];  // 查询系统调用次数\n        default:\n            return -1;\n    }\n}"
+      ]
+    },
+    {
+      "id": 2,
+      "category": "implementation",
+      "question": "关于系统调用统计的\"本次调用也计入统计\"要求，请看以下两种实现方案：\n\n\n\n根据实验要求\"本次调用也计入统计\"，哪种方案能正确实现：当调用 `sys_trace(2, 410, 0)` 查询sys_trace自身调用次数时，返回的结果包含当前这次调用？请详细说明理由，并指出方案B中的逻辑错误。",
+      "rationale": "深入考察\"本次调用也计入统计\"这一细微要求的实现顺序。学生容易误解为查询后再递增，或混淆统计时机，此问题能区分真正理解调用流程的学生。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "// 方案A：在分发入口处统计\nvoid syscall_dispatch(struct trapframe *tf) {\n    uint64_t id = tf->x17;  // a7寄存器存系统调用号\n    struct TaskControlBlock *task = get_current_task();\n    \n    task->syscall_counts[id]++;  // 先增加计数\n    \n    switch (id) {\n        case 410:  // sys_trace\n            tf->x10 = sys_trace(tf->x10, tf->x11, tf->x12);\n            break;\n        // ... 其他系统调用\n    }\n}\n\n// 方案B：在sys_trace内部统计后查询\nuint64_t sys_trace(int req, unsigned long id, uint8_t data) {\n    struct TaskControlBlock *task = get_current_task();\n    if (req == 2) {\n        uint64_t count = task->syscall_counts[id];\n        task->syscall_counts[410]++;  // 手动增加本次调用计数\n        return count;  // 返回的是增加前的值？\n    }\n}"
+      ]
+    },
+    {
+      "id": 3,
+      "category": "concept",
+      "question": "ch3实验中允许直接操作用户态内存，代码如下：\n\n\n\n根据课程知识库中关于ch3架构的描述，此时系统\"缺乏隔离机制\"。请解释：\n1. 为什么在ch3中内核可以直接解引用 `(uint8_t *)id` 来访问用户内存？此时内核和用户程序处于什么地址空间关系？\n2. 实验要求中提到\"读写并不安全，使用不当可能导致崩溃\"，请举例说明什么样的 `id` 值会导致系统崩溃（Panic）？\n3. 在ch4实现基于地址空间的分时多任务后，为什么不能继续使用这种直接解引用的方式？需要引入什么机制来替代？",
+      "rationale": "结合课程资料中\"ch3没有地址空间隔离\"的特点，考察学生对内核/用户地址空间关系、直接内存访问风险以及页表机制必要性的理解。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "case 0:  // 读取\n    return *(uint8_t *)id;\ncase 1:  // 写入  \n    *(uint8_t *)id = data;\n    return 0;"
+      ]
+    },
+    {
+      "id": 4,
+      "category": "debugging",
+      "question": "考虑 `sys_trace` 的参数类型细节：\n\n\n\n假设用户程序调用 `sys_trace(1, 0x80200000, 0xABCD)`，其中 `0xABCD` 是一个16位值。根据C语言整数提升规则和RISC-V寄存器传参约定，实际写入地址 `0x80200000` 的值是多少？请解释：\n1. 为什么高8位 `0xAB` 会被丢弃？\n2. 如果 `data` 参数在系统调用入口被错误地按 `int` 类型（32位）而非 `uint8_t` 处理，可能会导致什么错误？",
+      "rationale": "考察学生对C语言类型转换、整数截断以及系统调用参数传递细节的理解。这是实际OS实现中常见的类型安全问题。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "// 函数原型：int sys_trace(int trace_request, unsigned long id, uint8_t data);\n// RISC-V 64位下，寄存器传参规则：\n// a0=x10, a1=x11, a2=x12\n\nuint64_t sys_trace(int trace_request, unsigned long id, uint8_t data) {\n    if (trace_request == 1) {\n        // 写入操作，data只考虑最低位的一个字节\n        uint8_t *ptr = (uint8_t *)id;\n        *ptr = data;  // 写入\n    }\n    // ...\n}"
+      ]
+    }
+  ],
+  "diff_summary": {
+    "added_files": [
+      "ch3/console.c",
+      "ch3/console.h",
+      "ch3/const.h",
+      "ch3/defs.h",
+      "ch3/entry.S",
+      "ch3/kernel.ld",
+      "ch3/kernelld.py",
+      "ch3/loader.c",
+      "ch3/loader.h",
+      "ch3/log.h",
+      "ch3/main.c",
+      "ch3/pack.py",
+      "ch3/printf.c",
+      "ch3/printf.h",
+      "ch3/proc.c",
+      "ch3/proc.h",
+      "ch3/riscv.h",
+      "ch3/sbi.c",
+      "ch3/sbi.h",
+      "ch3/string.c",
+      "ch3/string.h",
+      "ch3/switch.S",
+      "ch3/syscall.c",
+      "ch3/syscall.h",
+      "ch3/syscall_ids.h",
+      "ch3/taskdef.h",
+      "ch3/timer.c",
+      "ch3/timer.h",
+      "ch3/trampoline.S",
+      "ch3/trap.c",
+      "ch3/trap.h",
+      "ch3/types.h"
+    ],
+    "deleted_files": [
+      "ch2/console.c",
+      "ch2/console.h",
+      "ch2/const.h",
+      "ch2/defs.h",
+      "ch2/entry.S",
+      "ch2/kernel.ld",
+      "ch2/kernelld.py",
+      "ch2/loader.c",
+      "ch2/loader.h",
+      "ch2/log.h",
+      "ch2/main.c",
+      "ch2/pack.py",
+      "ch2/printf.c",
+      "ch2/printf.h",
+      "ch2/riscv.h",
+      "ch2/sbi.c",
+      "ch2/sbi.h",
+      "ch2/string.c",
+      "ch2/string.h",
+      "ch2/syscall.c",
+      "ch2/syscall.h",
+      "ch2/syscall_ids.h",
+      "ch2/trampoline.S",
+      "ch2/trap.c",
+      "ch2/trap.h",
+      "ch2/types.h"
+    ],
+    "modified_files": [],
+    "summary": "新增文件: 32个\n删除文件: 26个\n修改文件: 0个\n未变文件: 0个"
+  },
+  "metadata": {
+    "diff_summary": "新增文件: 32个\n删除文件: 26个\n修改文件: 0个\n未变文件: 0个",
+    "total_files": 58,
+    "raw_response": "## 问题1 [implementation]\n请看这段 `sys_trace` 系统调用的实现代码：\n\n<code>\nuint64_t sys_trace(int trace_request, unsigned long id, uint8_t data) {\n    struct TaskControlBlock *current = get_current_task();\n    switch (trace_request) {\n        case 0:\n            return *(uint8_t *)id;  // 直接读取用户态地址\n        case 1:\n            *(uint8_t *)id = data;  // 直接写入用户态地址\n            return 0;\n        case 2:\n            return current->syscall_counts[id];  // 查询系统调用次数\n        default:\n            return -1;\n    }\n}\n</code>\n\n这段代码在处理 `trace_request = 2` 时，直接使用 `id` 作为数组索引访问 `syscall_counts`。考虑到 `id` 是用户传入的 `unsigned long` 类型，这种实现存在什么潜在风险？结合ch3实验要求中提到的\"不要求你实现安全检查机制\"，请解释为什么在ch3中可以暂时忽略这种风险，而在ch4实现地址空间隔离后必须添加边界检查？\n\n**出题理由**: 考察学生对用户输入验证的理解，以及ch3（无MMU）与ch4（有地址空间隔离）架构差异的认识。学生需要意识到直接解引用用户传入指针/索引的危险性，以及实验简化条件的合理性。\n\n---\n\n## 问题2 [implementation]\n关于系统调用统计的\"本次调用也计入统计\"要求，请看以下两种实现方案：\n\n<code>\n// 方案A：在分发入口处统计\nvoid syscall_dispatch(struct trapframe *tf) {\n    uint64_t id = tf->x17;  // a7寄存器存系统调用号\n    struct TaskControlBlock *task = get_current_task();\n    \n    task->syscall_counts[id]++;  // 先增加计数\n    \n    switch (id) {\n        case 410:  // sys_trace\n            tf->x10 = sys_trace(tf->x10, tf->x11, tf->x12);\n            break;\n        // ... 其他系统调用\n    }\n}\n\n// 方案B：在sys_trace内部统计后查询\nuint64_t sys_trace(int req, unsigned long id, uint8_t data) {\n    struct TaskControlBlock *task = get_current_task();\n    if (req == 2) {\n        uint64_t count = task->syscall_counts[id];\n        task->syscall_counts[410]++;  // 手动增加本次调用计数\n        return count;  // 返回的是增加前的值？\n    }\n}\n</code>\n\n根据实验要求\"本次调用也计入统计\"，哪种方案能正确实现：当调用 `sys_trace(2, 410, 0)` 查询sys_trace自身调用次数时，返回的结果包含当前这次调用？请详细说明理由，并指出方案B中的逻辑错误。\n\n**出题理由**: 深入考察\"本次调用也计入统计\"这一细微要求的实现顺序。学生容易误解为查询后再递增，或混淆统计时机，此问题能区分真正理解调用流程的学生。\n\n---\n\n## 问题3 [concept]\nch3实验中允许直接操作用户态内存，代码如下：\n\n<code>\ncase 0:  // 读取\n    return *(uint8_t *)id;\ncase 1:  // 写入  \n    *(uint8_t *)id = data;\n    return 0;\n</code>\n\n根据课程知识库中关于ch3架构的描述，此时系统\"缺乏隔离机制\"。请解释：\n1. 为什么在ch3中内核可以直接解引用 `(uint8_t *)id` 来访问用户内存？此时内核和用户程序处于什么地址空间关系？\n2. 实验要求中提到\"读写并不安全，使用不当可能导致崩溃\"，请举例说明什么样的 `id` 值会导致系统崩溃（Panic）？\n3. 在ch4实现基于地址空间的分时多任务后，为什么不能继续使用这种直接解引用的方式？需要引入什么机制来替代？\n\n**出题理由**: 结合课程资料中\"ch3没有地址空间隔离\"的特点，考察学生对内核/用户地址空间关系、直接内存访问风险以及页表机制必要性的理解。\n\n---\n\n## 问题4 [debugging]\n考虑 `sys_trace` 的参数类型细节：\n\n<code>\n// 函数原型：int sys_trace(int trace_request, unsigned long id, uint8_t data);\n// RISC-V 64位下，寄存器传参规则：\n// a0=x10, a1=x11, a2=x12\n\nuint64_t sys_trace(int trace_request, unsigned long id, uint8_t data) {\n    if (trace_request == 1) {\n        // 写入操作，data只考虑最低位的一个字节\n        uint8_t *ptr = (uint8_t *)id;\n        *ptr = data;  // 写入\n    }\n    // ...\n}\n</code>\n\n假设用户程序调用 `sys_trace(1, 0x80200000, 0xABCD)`，其中 `0xABCD` 是一个16位值。根据C语言整数提升规则和RISC-V寄存器传参约定，实际写入地址 `0x80200000` 的值是多少？请解释：\n1. 为什么高8位 `0xAB` 会被丢弃？\n2. 如果 `data` 参数在系统调用入口被错误地按 `int` 类型（32位）而非 `uint8_t` 处理，可能会导致什么错误？\n\n**出题理由**: 考察学生对C语言类型转换、整数截断以及系统调用参数传递细节的理解。这是实际OS实现中常见的类型安全问题。\n\n---\n\n## 问题5 [optimization]\n为了支持 `trace_request = 2` 的查询功能，需要在任务控制块中维护系统调用统计。以下是两种可能的设计：\n\n<code>\n// 设计A：固定大小数组，索引为系统调用号\n#define MAX_SYSCALL 500\nstruct TaskControlBlock {\n    struct context context;\n    uint64_t syscall_counts[MAX_SYSCALL];  // 每个任务独立统计\n};\n\n// 设计B：动态哈希表（假设实现）\nstruct TaskControlBlock {\n    struct context context;\n    struct hash_map *syscall_counts;  // 只记录实际发生过的调用\n};\n</code>\n\n考虑到ch3实验的特点（系统调用数量少、资源有限、需要O(1)查询性能），设计A明显更优。但请分析：\n1. 如果采用设计A，当用户传入的 `id >= MAX_SYSCALL` 时，如何优雅处理才能避免内核崩溃？\n2. 设计B虽然节省内存，但为什么在ch3的简化内核中可能引入额外复杂度？\n3. 实验要求中提到\"追踪当前任务系统调用的历史信息\"，这意味着统计信息应该是每个任务私有的（如设计A），还是全局共享的？请从\"任务切换\"的角度说明你的选择。\n\n**出题理由**: 考察OS设计中的trade-off思维：内存占用 vs 访问速度、实现复杂度 vs 功能完整性，以及任务私有数据与全局数据的区别。结合ch3资源受限的环境，评估学生的工程取舍能力。",
+    "context_length": 10397,
+    "use_kimi": true,
+    "os_type": "ucore",
+    "rag_enabled": true,
+    "rag_tool_calls": [
+      {
+        "tool": "search_by_lab",
+        "arguments": {
+          "lab_name": "ch3"
+        }
+      },
+      {
+        "tool": "search_os_concept",
+        "arguments": {
+          "concept": "系统调用",
+          "detail_level": "detailed"
+        }
+      },
+      {
+        "tool": "search_by_code_symbol",
+        "arguments": {
+          "symbol_name": "TaskControlBlock",
+          "context": "任务管理和系统调用统计"
+        }
+      },
+      {
+        "tool": "search_os_concept",
+        "arguments": {
+          "concept": "用户态地址空间",
+          "detail_level": "standard"
+        }
+      }
+    ],
+    "rag_results_length": 8678
+  }
+}

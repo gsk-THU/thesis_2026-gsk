@@ -1,0 +1,67 @@
+{
+  "generated_at": "2026-05-18T15:31:00.636859",
+  "os_type": "ucore",
+  "experiment_requirement": "ch3 中，我们的系统已经能够支持多个任务分时轮流运行，我们希望引入一个新的系统调用 sys_trace （syscall ID: 410）用来追踪当前任务系统调用的历史信息、并进行任务内存的读写。定义如下：\r\n\r\nint sys_trace(int trace_request, unsigned long id, uint8_t data);\r\nsyscall ID: 410\r\n\r\n调用规范：\r\n这个系统调用有三种功能，根据 trace_request 的值不同，执行不同的操作：\r\n\r\n如果 trace_request 为 0，则 id 应被视作 uint8_t * ，表示读取当前任务 id 地址处一个字节的无符号整数值。此时应忽略 data 参数。返回值为 id 地址处的值。\r\n\r\n如果 trace_request 为 1，则 id 应被视作 uint8_t * ，表示写入 data （作为 uint8_t，即只考虑最低位的一个字节）到该用户程序 id 地址处。返回值应为0。\r\n\r\n如果 trace_request 为 2，表示查询当前任务调用编号为 id 的系统调用的次数，返回值为这个调用次数。 本次调用也计入统计 。\r\n\r\n否则，忽略其他参数，返回值为 -1。\r\n\r\n说明：\r\nuint8_t 是C语言中的标准类型，表示一个无符号的8位整数。在代码中你可能需要使用 uint8 替代。\r\n\r\n你可能会注意到，这个调用的读写并不安全，使用不当可能导致崩溃。这是因为在下一章节实现地址空间之前，系统中缺乏隔离机制。所以我们 不要求你实现安全检查机制，只需通过测试用例即可 。\r\n\r\n你还可能注意到，这个系统调用读写本任务内存的功能并不是很有用。这是因为作业的灵感来源 syscall 主要依靠 trace 功能追踪其他任务的信息，但在本章节我们还没有进程、线程等概念，所以简化了操作，只要求追踪自身的信息。",
+  "experiment_title": "ch3 中，我们的系统已经能够支持多个任务分时轮流运行，我们希望引入一个新的系统调用 sys_tra...",
+  "summary": "基于1个修改文件和0个新增文件生成1个问题（OS类型: ucore, RAG检索: 4次）",
+  "total_questions": 1,
+  "questions": [
+    {
+      "id": 1,
+      "category": "debugging",
+      "question": "请分析以下代码片段：\n\n\n\n这段代码直接将`id`作为指针进行解引用操作。根据课程知识库中关于ch3的描述，当前系统**尚未实现地址空间隔离机制**（将在ch4引入）。请回答：\n\n1. 如果用户程序传入的`id`指向内核内存区域（如内核栈或内核代码段），会发生什么？这会导致安全漏洞吗？\n2. 实验要求中提到\"不要求你实现安全检查机制\"，但在真实的操作系统中，这种直接内存访问会带来哪些潜在风险？请结合系统调用的特权级切换机制说明。",
+      "rationale": "此问题针对学生代码中最关键的\"无保护内存访问\"这一变更点。ch3章节正是从单任务向多任务过渡的阶段，学生需要理解在没有MMU隔离的裸机环境下，内核直接操作用户传入的指针地址的危险性。这能区分\"照搬实验要求通过测试\"和\"理解OS安全机制\"的学生，同时考察对特权级和内存保护基本概念的理解。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "case 0:\n\t\t/* 读取当前任务 id 地址处一个字节 */\n\t\treturn *(uint8_t *)id;\n\tcase 1:\n\t\t/* 写入 data 的最低位字节到 id 地址处 */\n\t\t*(uint8_t *)id = data;\n\t\treturn 0;"
+      ]
+    }
+  ],
+  "diff_summary": {
+    "added_files": [],
+    "deleted_files": [],
+    "modified_files": [
+      "os/syscall.c"
+    ],
+    "summary": "新增文件: 0个\n删除文件: 0个\n修改文件: 1个\n未变文件: 30个\n\n主要修改:\n  - os/syscall.c (变更行: 29行)"
+  },
+  "metadata": {
+    "diff_summary": "新增文件: 0个\n删除文件: 0个\n修改文件: 1个\n未变文件: 30个\n\n主要修改:\n  - os/syscall.c (变更行: 29行)",
+    "total_files": 62,
+    "raw_response": "## 问题1 [debugging]\n请分析以下代码片段：\n\n<code>\n\tcase 0:\n\t\t/* 读取当前任务 id 地址处一个字节 */\n\t\treturn *(uint8_t *)id;\n\tcase 1:\n\t\t/* 写入 data 的最低位字节到 id 地址处 */\n\t\t*(uint8_t *)id = data;\n\t\treturn 0;\n</code>\n\n这段代码直接将`id`作为指针进行解引用操作。根据课程知识库中关于ch3的描述，当前系统**尚未实现地址空间隔离机制**（将在ch4引入）。请回答：\n\n1. 如果用户程序传入的`id`指向内核内存区域（如内核栈或内核代码段），会发生什么？这会导致安全漏洞吗？\n2. 实验要求中提到\"不要求你实现安全检查机制\"，但在真实的操作系统中，这种直接内存访问会带来哪些潜在风险？请结合系统调用的特权级切换机制说明。\n\n**出题理由**: 此问题针对学生代码中最关键的\"无保护内存访问\"这一变更点。ch3章节正是从单任务向多任务过渡的阶段，学生需要理解在没有MMU隔离的裸机环境下，内核直接操作用户传入的指针地址的危险性。这能区分\"照搬实验要求通过测试\"和\"理解OS安全机制\"的学生，同时考察对特权级和内存保护基本概念的理解。\n\n---\n\n## 问题2 [implementation]\n请分析`sys_trace`中trace_request为2时的实现：\n\n<code>\n\tcase 2:\n\t\t/* 查询当前任务调用编号为 id 的系统调用的次数 */\n\t\tif (id < MAX_SYSCALL_NUM)\n\t\t\treturn p->syscall_count[id];\n\t\telse\n\t\t\treturn 0;\n</code>\n\n实验要求明确指出\"**本次调用也计入统计**\"。假设用户调用`sys_trace(2, 410, 0)`查询sys_trace自身的调用次数：\n\n1. 这段代码返回的`p->syscall_count[id]`是在何处被维护和更新的？请说明具体的代码位置（是在`syscall`函数入口处，还是在各个系统调用函数内部？）。\n2. 如果统计是在`syscall`函数入口处统一维护的，如何确保当`trace_request=2`查询时，**本次**调用已经被计入？请分析执行顺序是否会影响结果。\n\n**出题理由**: 此问题考察学生对系统调用处理流程的整体理解。代码片段中只展示了查询逻辑，没有展示计数维护逻辑，需要学生清楚了解系统调用的入口处理机制（如何在进入`sys_trace`之前或之后更新计数器）。\"本次调用计入统计\"的时序问题能很好地区分真正理解系统调用流程和仅仅完成功能的学生，同时涉及对`curr_proc()`获取的任务结构体中数据一致性的理解。",
+    "context_length": 9861,
+    "use_kimi": true,
+    "os_type": "ucore",
+    "rag_enabled": true,
+    "rag_tool_calls": [
+      {
+        "tool": "search_by_lab",
+        "arguments": {
+          "lab_name": "ch3"
+        }
+      },
+      {
+        "tool": "search_os_concept",
+        "arguments": {
+          "concept": "系统调用"
+        }
+      },
+      {
+        "tool": "search_by_code_symbol",
+        "arguments": {
+          "symbol_name": "curr_proc",
+          "context": "获取当前任务"
+        }
+      },
+      {
+        "tool": "search_os_concept",
+        "arguments": {
+          "concept": "内存隔离",
+          "detail_level": "standard"
+        }
+      }
+    ],
+    "rag_results_length": 7989
+  }
+}

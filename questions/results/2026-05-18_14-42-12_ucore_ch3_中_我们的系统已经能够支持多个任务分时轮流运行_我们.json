@@ -1,0 +1,68 @@
+{
+  "generated_at": "2026-05-18T14:42:12.939626",
+  "os_type": "ucore",
+  "experiment_requirement": "ch3 中，我们的系统已经能够支持多个任务分时轮流运行，我们希望引入一个新的系统调用 sys_trace （syscall ID: 410）用来追踪当前任务系统调用的历史信息、并进行任务内存的读写。定义如下：\r\n\r\nint sys_trace(int trace_request, unsigned long id, uint8_t data);\r\nsyscall ID: 410\r\n\r\n调用规范：\r\n这个系统调用有三种功能，根据 trace_request 的值不同，执行不同的操作：\r\n\r\n如果 trace_request 为 0，则 id 应被视作 uint8_t * ，表示读取当前任务 id 地址处一个字节的无符号整数值。此时应忽略 data 参数。返回值为 id 地址处的值。\r\n\r\n如果 trace_request 为 1，则 id 应被视作 uint8_t * ，表示写入 data （作为 uint8_t，即只考虑最低位的一个字节）到该用户程序 id 地址处。返回值应为0。\r\n\r\n如果 trace_request 为 2，表示查询当前任务调用编号为 id 的系统调用的次数，返回值为这个调用次数。 本次调用也计入统计 。\r\n\r\n否则，忽略其他参数，返回值为 -1。\r\n\r\n说明：\r\nuint8_t 是C语言中的标准类型，表示一个无符号的8位整数。在代码中你可能需要使用 uint8 替代。\r\n\r\n你可能会注意到，这个调用的读写并不安全，使用不当可能导致崩溃。这是因为在下一章节实现地址空间之前，系统中缺乏隔离机制。所以我们 不要求你实现安全检查机制，只需通过测试用例即可 。\r\n\r\n你还可能注意到，这个系统调用读写本任务内存的功能并不是很有用。这是因为作业的灵感来源 syscall 主要依靠 trace 功能追踪其他任务的信息，但在本章节我们还没有进程、线程等概念，所以简化了操作，只要求追踪自身的信息。",
+  "experiment_title": "ch3 中，我们的系统已经能够支持多个任务分时轮流运行，我们希望引入一个新的系统调用 sys_tra...",
+  "summary": "基于1个修改文件和0个新增文件生成1个问题（OS类型: ucore, RAG检索: 4次）",
+  "total_questions": 1,
+  "questions": [
+    {
+      "id": 1,
+      "category": "implementation",
+      "question": "在 `sys_trace` 的 case 2 实现中，你通过 `p->syscall_count[id]` 来查询系统调用次数：\n\n\n\n1. 实验要求明确指出\"本次调用也计入统计\"。请分析：当用户调用 `sys_trace(2, 410, 0)`（即查询 sys_trace 自身的调用次数）时，返回的计数是否包含当前这次调用？为什么？（提示：考虑系统调用的入口处理逻辑）\n\n2. 代码中对 `id` 进行了边界检查 `id < MAX_SYSCALL_NUM`。如果省略这个检查，当用户传入一个远大于 `MAX_SYSCALL_NUM` 的 `id` 值时，会发生什么？结合 `struct proc` 中 `syscall_count` 数组的内存布局，解释其潜在风险。",
+      "rationale": "此问题聚焦 case 2 的核心逻辑，考察学生对系统调用处理流程的整体理解。问题 1 需要学生意识到 `syscall_count` 的累加通常发生在 `syscall()` 函数入口（本次调用的统计已在进入 `sys_trace` 前完成），测试其对\"本次调用计入统计\"实现细节的理解。问题 2 考察数组越界访问的风险，结合课程资料中 `struct proc` 的结构定义，区分学生对内存安全的基本认识。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "case 2:\n    /* 查询当前任务调用编号为 id 的系统调用的次数 */\n    if (id < MAX_SYSCALL_NUM)\n        return p->syscall_count[id];\n    else\n        return 0;"
+      ]
+    }
+  ],
+  "diff_summary": {
+    "added_files": [],
+    "deleted_files": [],
+    "modified_files": [
+      "os/syscall.c"
+    ],
+    "summary": "新增文件: 0个\n删除文件: 0个\n修改文件: 1个\n未变文件: 30个\n\n主要修改:\n  - os/syscall.c (变更行: 29行)"
+  },
+  "metadata": {
+    "diff_summary": "新增文件: 0个\n删除文件: 0个\n修改文件: 1个\n未变文件: 30个\n\n主要修改:\n  - os/syscall.c (变更行: 29行)",
+    "total_files": 62,
+    "raw_response": "## 问题1 [implementation]\n在 `sys_trace` 的 case 2 实现中，你通过 `p->syscall_count[id]` 来查询系统调用次数：\n\n<code>\ncase 2:\n    /* 查询当前任务调用编号为 id 的系统调用的次数 */\n    if (id < MAX_SYSCALL_NUM)\n        return p->syscall_count[id];\n    else\n        return 0;\n</code>\n\n1. 实验要求明确指出\"本次调用也计入统计\"。请分析：当用户调用 `sys_trace(2, 410, 0)`（即查询 sys_trace 自身的调用次数）时，返回的计数是否包含当前这次调用？为什么？（提示：考虑系统调用的入口处理逻辑）\n\n2. 代码中对 `id` 进行了边界检查 `id < MAX_SYSCALL_NUM`。如果省略这个检查，当用户传入一个远大于 `MAX_SYSCALL_NUM` 的 `id` 值时，会发生什么？结合 `struct proc` 中 `syscall_count` 数组的内存布局，解释其潜在风险。\n\n**出题理由**: 此问题聚焦 case 2 的核心逻辑，考察学生对系统调用处理流程的整体理解。问题 1 需要学生意识到 `syscall_count` 的累加通常发生在 `syscall()` 函数入口（本次调用的统计已在进入 `sys_trace` 前完成），测试其对\"本次调用计入统计\"实现细节的理解。问题 2 考察数组越界访问的风险，结合课程资料中 `struct proc` 的结构定义，区分学生对内存安全的基本认识。\n\n---\n\n## 问题2 [concept]\n请看 case 0 和 case 1 的内存访问实现：\n\n<code>\ncase 0:\n    /* 读取当前任务 id 地址处一个字节 */\n    return *(uint8_t *)id;\ncase 1:\n    /* 写入 data 的最低位字节到 id 地址处 */\n    *(uint8_t *)id = data;\n    return 0;\n</code>\n\n1. 这里直接将用户传入的 `unsigned long id` 强制转换为指针并解引用。根据课程知识库，ch3 章节（对应 lab1）尚未实现地址空间隔离机制（该内容在 ch4/lab2 中引入）。请解释：在当前 ch3 的实现环境下，为什么这种直接解引用用户提供的地址能够\"工作\"？（从物理内存布局角度分析）\n\n2. 实验说明中提到\"这个调用的读写并不安全，使用不当可能导致崩溃\"。请举例说明：用户程序可以通过构造什么样的 `id` 参数来导致内核崩溃或数据损坏？如果到了 ch4 实现了基于页表的地址空间隔离后，这种直接解引用的方式还能正常工作吗？为什么？\n\n**出题理由**: 此问题结合课程资料中关于\"ch4 实现地址空间\"的内容，考察学生对内核/用户态地址空间隔离机制的理解深度。问题 1 要求学生理解 ch3 中内核与用户共享物理地址空间的特点；问题 2 考察对非法内存访问风险的认知，以及地址空间隔离机制的必要性，符合\"原理结合实践\"的提问原则。",
+    "context_length": 10271,
+    "use_kimi": true,
+    "os_type": "ucore",
+    "rag_enabled": true,
+    "rag_tool_calls": [
+      {
+        "tool": "search_by_lab",
+        "arguments": {
+          "lab_name": "ch3"
+        }
+      },
+      {
+        "tool": "search_os_concept",
+        "arguments": {
+          "concept": "系统调用",
+          "detail_level": "detailed"
+        }
+      },
+      {
+        "tool": "search_by_code_symbol",
+        "arguments": {
+          "symbol_name": "curr_proc",
+          "context": "获取当前进程指针"
+        }
+      },
+      {
+        "tool": "search_os_concept",
+        "arguments": {
+          "concept": "地址空间",
+          "detail_level": "standard"
+        }
+      }
+    ],
+    "rag_results_length": 8399
+  }
+}

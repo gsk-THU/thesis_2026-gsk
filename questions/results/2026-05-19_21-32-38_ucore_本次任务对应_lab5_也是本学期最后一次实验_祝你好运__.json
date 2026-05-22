@@ -1,0 +1,157 @@
+{
+  "generated_at": "2026-05-19T21:32:38.801670",
+  "os_type": "ucore",
+  "experiment_requirement": "本次任务对应 lab5，也是本学期最后一次实验，祝你好运。\n\n老规矩，先 make test BASE=1 看下啥情况。\n\n理解框架的多线程机制，了解几种锁的运行原理。在此基础上，实现本章编程作业死锁检测。\n如果时间有限，多线程机制的一些细节大可跳过，但至少应知道多线程基本原理和本章在任务调度粒度上的调整\n\n与实验息息相关的是互斥锁(mutex)与信号量(semaphore)，条件变量(condvar)供阅读\n\n框架包含 LAB5 字样的注释中给出了一个供参考的实现位置和顺序，你可以按顺序完成（下面的标号与注释中的一种）：\n1: 定义并初始化部分 PCB 的部分变量，包括控制死锁检测启动与死锁检测算法用到的变量， 你可以先定义一部分，后面发现有需要时再做添加；\n\n2: 完成系统调用 sys_enable_deadlock_detect，只需要修改变量，不必考虑是否正确实现了死锁。 完成这一步后你可以顺利跑完 ch8_sem2_deadlock，这个测例开启了死锁检测但并没有死锁；\n\n3: 尝试写一个函数实现下面提到的死锁检测算法，注释中给了供参考的函数签名。 这是一个和OS独立的函数，你可以自行设计数据单独运行它以测试；\n\n4-1: 维护 mutex 相关的死锁检测变量，并调用死锁检测算法，完成后你可以顺利跑完测例 ch8_mut1_deadlock；\n\n4-2: 维护 semaphore 相关的死锁检测变量，并调用死锁检测算法，完成后你可以顺利跑完测例 ch8_sem1_deadlock；\n\n最终，完成实验报告并 push 你的 ch8 分支到远程仓库。push 代码后会自动执行 CI，代码给分以 CI 给分为准。\n\n死锁检测\n目前的 mutex 和 semaphore 相关的系统调用不会分析资源的依赖情况，用户程序可能出现死锁。 我们希望在系统中加入死锁检测机制，当发现可能发生死锁时拒绝对应的资源获取请求。 一种检测死锁的算法如下：\n\n定义如下三个数据结构：\n\n可利用资源向量 Available ：含有 m 个元素的一维数组，每个元素代表可利用的某一类资源的数目， 其初值是该类资源的全部可用数目，其值随该类资源的分配和回收而动态地改变。 Available[j] = k，表示第 j 类资源的可用数量为 k。\n\n分配矩阵 Allocation：n * m 矩阵，表示每类资源已分配给每个线程的资源数。 Allocation[i,j] = g，则表示线程 i 当前己分得第 j 类资源的数量为 g。\n\n需求矩阵 Request：n * m 的矩阵，表示每个线程还需要的各类资源数量。 Request[i,j] = d，则表示线程 i 还需要第 j 类资源的数量为 d 。\n\n算法运行过程如下：\n\n设置两个向量: 工作向量 Work，表示操作系统可提供给线程继续运行所需的各类资源数目，它含有 m 个元素。初始时，Work = Available ；结束向量 Finish，表示系统是否有足够的资源分配给线程， 使之运行完成。初始时 Finish[0~n-1] = false，表示所有线程都没结束；当有足够资源分配给线程时， 设置 Finish[i] = true。\n\n从线程集合中找到一个能满足下述条件的线程 i\n\n1Finish[i] == false;\n2Request[i,0~n-1] ≤ Work[0~n-1];\n若找到，执行步骤 3，否则执行步骤 4。\n\n当线程 i 获得资源后，可顺利执行，直至完成，并释放出分配给它的资源，故应执行:\n\n1Work[0~n-1] = Work[0~n-1] + Allocation[i, 0~n-1];\n2Finish[i] = true;\n跳转回步骤2\n\n如果 Finish[0~n-1] 都为 true，则表示系统处于安全状态；否则表示系统处于不安全状态，即出现死锁。\n\n出于兼容性和灵活性考虑，我们允许进程按需开启或关闭死锁检测功能。为此我们将实现一个新的系统调用： sys_enable_deadlock_detect 。\n\nenable_deadlock_detect：\n\nsyscall ID: 469\n\n功能：为当前进程启用或禁用死锁检测功能。\n\n接口： int enable_deadlock_detect(int is_enable)\n\n参数：\nis_enable: 为 1 表示启用死锁检测， 0 表示禁用死锁检测。\n\n说明：\n开启死锁检测功能后， mutex_lock 和 semaphore_down 如果检测到死锁， 应拒绝相应操作并返回 -0xDEAD (十六进制值)。\n\n简便起见可对 mutex 和 semaphore 分别进行检测，无需考虑二者 (以及 waittid 等) 混合使用导致的死锁。\n\n返回值：如果出现了错误则返回 -1，否则返回 0。\n\n可能的错误\n参数不合法\n\n死锁检测开启失败",
+  "experiment_title": "本次任务对应 lab5，也是本学期最后一次实验，祝你好运。\n\n老规矩，先 make test BAS...",
+  "summary": "基于0个修改文件和0个新增文件生成4个问题（OS类型: ucore, RAG检索: 5次）",
+  "total_questions": 4,
+  "questions": [
+    {
+      "id": 1,
+      "category": "implementation",
+      "question": "请看下面这段死锁检测算法的核心实现代码：\n\n\n\n在这段代码中，当找到一个线程i满足`request[i] <= work`时，我们会将其Allocation资源加回Work向量并标记Finish。请解释：**为什么必须在一个循环中不断查找可完成的线程，直到找不到为止？** 如果只是遍历一次就判断，会出现什么错误？",
+      "rationale": "考察学生对银行家算法本质的理解。许多学生只是照搬算法步骤，但不理解\"模拟资源回收\"的过程实际上是在寻找安全序列。单次遍历无法处理资源回收后新变得可执行的线程，这是区分\"真正理解\"和\"记忆代码\"的关键点。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "fn deadlock_detect(available: &[usize], allocation: &[Vec<usize>], request: &[Vec<usize>]) -> bool {\n    let n = allocation.len();  // 线程数\n    let m = available.len();   // 资源类型数\n    let mut work = available.to_vec();\n    let mut finish = vec![false; n];\n    \n    loop {\n        let mut found = false;\n        for i in 0..n {\n            if !finish[i] && request[i].iter().zip(&work).all(|(r, w)| r <= w) {\n                // 线程i可以完成，回收其资源\n                for j in 0..m {\n                    work[j] += allocation[i][j];\n                }\n                finish[i] = true;\n                found = true;\n            }\n        }\n        if !found { break; }\n    }\n    \n    finish.iter().all(|&f| f)  // 全部完成则安全\n}"
+      ]
+    },
+    {
+      "id": 2,
+      "category": "implementation",
+      "question": "假设你在实现mutex_lock时的代码逻辑如下：\n\n\n\n注意到在检测到死锁时你立即返回了-0xDEAD，但在**实际加锁成功后**你才更新Allocation矩阵。请分析：**如果在`try_lock`成功之前（即线程阻塞等待锁时），另一个线程释放了该mutex，此时死锁检测状态是否会出现不一致？** 具体会出现什么问题？应该如何修改？",
+      "rationale": "这是实验中最容易出现的时序bug。学生往往在阻塞前记录Request，但在被唤醒后忘记重新检测或正确维护矩阵。该问题考察对\"请求-分配\"状态转换原子性的理解，以及阻塞/唤醒机制与死锁检测的交互。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "pub fn mutex_lock(mutex_id: usize) -> isize {\n    let task = current_task().unwrap();\n    let process = current_process();\n    \n    // LAB5: 维护死锁检测矩阵\n    if process.deadlock_detect_enabled {\n        // 记录资源请求\n        process.deadlock.request[task.id][mutex_id] += 1;\n        \n        // 调用死锁检测算法\n        if is_deadlock() {\n            // 检测到死锁，撤销请求记录并返回错误\n            process.deadlock.request[task.id][mutex_id] -= 1;\n            return -0xDEAD;\n        }\n    }\n    \n    // 实际的加锁操作...\n    if try_lock(mutex_id) {\n        // 加锁成功，更新分配矩阵\n        if process.deadlock_detect_enabled {\n            process.deadlock.request[task.id][mutex_id] -= 1;\n            process.deadlock.allocation[task.id][mutex_id] += 1;\n        }\n        0\n    } else {\n        // 阻塞等待...\n    }\n}"
+      ]
+    },
+    {
+      "id": 3,
+      "category": "debugging",
+      "question": "考虑线程退出时的资源清理场景，你的代码可能包含如下逻辑：\n\n\n\n这段代码在线程退出时归还了Allocation资源。但是，**如果该线程在退出时仍然持有某些mutex（即Allocation > 0），但对应的mutex对象已经被销毁（通过sys_mutex_destroy），此时会出现什么潜在问题？** 请从死锁检测矩阵一致性和内存安全角度分析。",
+      "rationale": "考察边界情况处理。实验框架中mutex可以动态创建和销毁，但学生往往只考虑正常lock/unlock路径，忽略了线程异常退出或资源提前释放导致的矩阵不一致。这能区分代码是否健壮。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "pub fn thread_exit() {\n    let task = current_task().unwrap();\n    let process = current_process();\n    \n    // LAB5: 清理死锁检测相关资源\n    if process.deadlock_detect_enabled {\n        let tid = task.id;\n        // 将该线程占用的所有资源清零\n        for j in 0..MAX_MUTEX_NUM {\n            if process.deadlock.allocation[tid][j] > 0 {\n                // 归还资源到Available\n                process.deadlock.available[j] += process.deadlock.allocation[tid][j];\n                process.deadlock.allocation[tid][j] = 0;\n            }\n        }\n        // 清空请求向量\n        for j in 0..MAX_MUTEX_NUM {\n            process.deadlock.request[tid][j] = 0;\n        }\n    }\n    \n    // 实际退出操作...\n}"
+      ]
+    },
+    {
+      "id": 4,
+      "category": "concept",
+      "question": "根据实验说明，\"简便起见可对mutex和semaphore分别进行检测，无需考虑二者混合使用导致的死锁\"。假设你的实现确实如此，分别维护了两组Available/Allocation/Request矩阵：\n\n\n\n请分析：**如果用户程序同时使用了mutex和semaphore，且存在一个死锁需要同时观察这两类资源的依赖关系才能发现（例如线程A持有mutex等待semaphore，线程B持有semaphore等待mutex），你的检测机制会漏检吗？** 进一步，为什么实验允许这种简化？在什么场景下这种简化是安全的？",
+      "rationale": "考察对死锁检测完备性与实现复杂度权衡的理解。课程资料明确提到可以分别检测，但优秀的学生应该理解这种简化的代价和适用条件，体现对\"安全状态\"概念的深入掌握。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "struct DeadlockDetect {\n    mutex_available: Vec<usize>,\n    mutex_allocation: Vec<Vec<usize>>,\n    mutex_request: Vec<Vec<usize>>,\n    \n    sem_available: Vec<usize>,\n    sem_allocation: Vec<Vec<usize>>,\n    sem_request: Vec<Vec<usize>>,\n}"
+      ]
+    }
+  ],
+  "diff_summary": {
+    "added_files": [],
+    "deleted_files": [
+      "ch7/bio.c",
+      "ch7/bio.h",
+      "ch7/console.c",
+      "ch7/console.h",
+      "ch7/const.h",
+      "ch7/defs.h",
+      "ch7/entry.S",
+      "ch7/fcntl.h",
+      "ch7/file.c",
+      "ch7/file.h",
+      "ch7/fs.c",
+      "ch7/fs.h",
+      "ch7/kalloc.c",
+      "ch7/kalloc.h",
+      "ch7/kernel.ld",
+      "ch7/kernelld.py",
+      "ch7/kernelvec.S",
+      "ch7/loader.c",
+      "ch7/loader.h",
+      "ch7/log.h",
+      "ch7/main.c",
+      "ch7/pipe.c",
+      "ch7/plic.c",
+      "ch7/plic.h",
+      "ch7/printf.c",
+      "ch7/printf.h",
+      "ch7/proc.c",
+      "ch7/proc.h",
+      "ch7/queue.c",
+      "ch7/queue.h",
+      "ch7/riscv.h",
+      "ch7/sbi.c",
+      "ch7/sbi.h",
+      "ch7/string.c",
+      "ch7/string.h",
+      "ch7/switch.S",
+      "ch7/syscall.c",
+      "ch7/syscall.h",
+      "ch7/syscall_ids.h",
+      "ch7/taskdef.h",
+      "ch7/timer.c",
+      "ch7/timer.h",
+      "ch7/trampoline.S",
+      "ch7/trap.c",
+      "ch7/trap.h",
+      "ch7/types.h",
+      "ch7/virtio.h",
+      "ch7/virtio_disk.c",
+      "ch7/vm.c",
+      "ch7/vm.h"
+    ],
+    "modified_files": [],
+    "summary": "新增文件: 0个\n删除文件: 50个\n修改文件: 0个\n未变文件: 0个"
+  },
+  "metadata": {
+    "diff_summary": "新增文件: 0个\n删除文件: 50个\n修改文件: 0个\n未变文件: 0个",
+    "total_files": 50,
+    "raw_response": "## 问题1 [implementation]\n请看下面这段死锁检测算法的核心实现代码：\n\n<code>\nfn deadlock_detect(available: &[usize], allocation: &[Vec<usize>], request: &[Vec<usize>]) -> bool {\n    let n = allocation.len();  // 线程数\n    let m = available.len();   // 资源类型数\n    let mut work = available.to_vec();\n    let mut finish = vec![false; n];\n    \n    loop {\n        let mut found = false;\n        for i in 0..n {\n            if !finish[i] && request[i].iter().zip(&work).all(|(r, w)| r <= w) {\n                // 线程i可以完成，回收其资源\n                for j in 0..m {\n                    work[j] += allocation[i][j];\n                }\n                finish[i] = true;\n                found = true;\n            }\n        }\n        if !found { break; }\n    }\n    \n    finish.iter().all(|&f| f)  // 全部完成则安全\n}\n</code>\n\n在这段代码中，当找到一个线程i满足`request[i] <= work`时，我们会将其Allocation资源加回Work向量并标记Finish。请解释：**为什么必须在一个循环中不断查找可完成的线程，直到找不到为止？** 如果只是遍历一次就判断，会出现什么错误？\n\n**出题理由**: 考察学生对银行家算法本质的理解。许多学生只是照搬算法步骤，但不理解\"模拟资源回收\"的过程实际上是在寻找安全序列。单次遍历无法处理资源回收后新变得可执行的线程，这是区分\"真正理解\"和\"记忆代码\"的关键点。\n\n---\n\n## 问题2 [implementation]\n假设你在实现mutex_lock时的代码逻辑如下：\n\n<code>\npub fn mutex_lock(mutex_id: usize) -> isize {\n    let task = current_task().unwrap();\n    let process = current_process();\n    \n    // LAB5: 维护死锁检测矩阵\n    if process.deadlock_detect_enabled {\n        // 记录资源请求\n        process.deadlock.request[task.id][mutex_id] += 1;\n        \n        // 调用死锁检测算法\n        if is_deadlock() {\n            // 检测到死锁，撤销请求记录并返回错误\n            process.deadlock.request[task.id][mutex_id] -= 1;\n            return -0xDEAD;\n        }\n    }\n    \n    // 实际的加锁操作...\n    if try_lock(mutex_id) {\n        // 加锁成功，更新分配矩阵\n        if process.deadlock_detect_enabled {\n            process.deadlock.request[task.id][mutex_id] -= 1;\n            process.deadlock.allocation[task.id][mutex_id] += 1;\n        }\n        0\n    } else {\n        // 阻塞等待...\n    }\n}\n</code>\n\n注意到在检测到死锁时你立即返回了-0xDEAD，但在**实际加锁成功后**你才更新Allocation矩阵。请分析：**如果在`try_lock`成功之前（即线程阻塞等待锁时），另一个线程释放了该mutex，此时死锁检测状态是否会出现不一致？** 具体会出现什么问题？应该如何修改？\n\n**出题理由**: 这是实验中最容易出现的时序bug。学生往往在阻塞前记录Request，但在被唤醒后忘记重新检测或正确维护矩阵。该问题考察对\"请求-分配\"状态转换原子性的理解，以及阻塞/唤醒机制与死锁检测的交互。\n\n---\n\n## 问题3 [debugging]\n考虑线程退出时的资源清理场景，你的代码可能包含如下逻辑：\n\n<code>\npub fn thread_exit() {\n    let task = current_task().unwrap();\n    let process = current_process();\n    \n    // LAB5: 清理死锁检测相关资源\n    if process.deadlock_detect_enabled {\n        let tid = task.id;\n        // 将该线程占用的所有资源清零\n        for j in 0..MAX_MUTEX_NUM {\n            if process.deadlock.allocation[tid][j] > 0 {\n                // 归还资源到Available\n                process.deadlock.available[j] += process.deadlock.allocation[tid][j];\n                process.deadlock.allocation[tid][j] = 0;\n            }\n        }\n        // 清空请求向量\n        for j in 0..MAX_MUTEX_NUM {\n            process.deadlock.request[tid][j] = 0;\n        }\n    }\n    \n    // 实际退出操作...\n}\n</code>\n\n这段代码在线程退出时归还了Allocation资源。但是，**如果该线程在退出时仍然持有某些mutex（即Allocation > 0），但对应的mutex对象已经被销毁（通过sys_mutex_destroy），此时会出现什么潜在问题？** 请从死锁检测矩阵一致性和内存安全角度分析。\n\n**出题理由**: 考察边界情况处理。实验框架中mutex可以动态创建和销毁，但学生往往只考虑正常lock/unlock路径，忽略了线程异常退出或资源提前释放导致的矩阵不一致。这能区分代码是否健壮。\n\n---\n\n## 问题4 [concept]\n根据实验说明，\"简便起见可对mutex和semaphore分别进行检测，无需考虑二者混合使用导致的死锁\"。假设你的实现确实如此，分别维护了两组Available/Allocation/Request矩阵：\n\n<code>\nstruct DeadlockDetect {\n    mutex_available: Vec<usize>,\n    mutex_allocation: Vec<Vec<usize>>,\n    mutex_request: Vec<Vec<usize>>,\n    \n    sem_available: Vec<usize>,\n    sem_allocation: Vec<Vec<usize>>,\n    sem_request: Vec<Vec<usize>>,\n}\n</code>\n\n请分析：**如果用户程序同时使用了mutex和semaphore，且存在一个死锁需要同时观察这两类资源的依赖关系才能发现（例如线程A持有mutex等待semaphore，线程B持有semaphore等待mutex），你的检测机制会漏检吗？** 进一步，为什么实验允许这种简化？在什么场景下这种简化是安全的？\n\n**出题理由**: 考察对死锁检测完备性与实现复杂度权衡的理解。课程资料明确提到可以分别检测，但优秀的学生应该理解这种简化的代价和适用条件，体现对\"安全状态\"概念的深入掌握。\n\n---\n\n## 问题5 [optimization]\n你在PCB中定义了死锁检测相关的数据结构：\n\n<code>\npub struct ProcessControlBlock {\n    // ...其他字段...\n    \n    // LAB5: 死锁检测\n    pub deadlock_detect: bool,\n    pub available: Vec<usize>,        // 每类资源可用数\n    pub allocation: Vec<Vec<usize>>,  // 每个线程的已分配资源\n    pub request: Vec<Vec<usize>>,     // 每个线程的请求资源\n}\n\nimpl ProcessControlBlock {\n    pub fn new(...) -> Self {\n        // 初始化...\n        Self {\n            // ...\n            deadlock_detect: false,\n            available: vec![0; MAX_RESOURCE_TYPES],\n            allocation: vec![vec![0; MAX_RESOURCE_TYPES]; MAX_THREADS],\n            request: vec![vec![0; MAX_RESOURCE_TYPES]; MAX_THREADS],\n        }\n    }\n}\n</code>\n\n考虑到进程内的线程数和资源类型可能动态变化，**这种使用二维Vec（动态数组）的实现方式在每次死锁检测时都需要遍历所有线程和资源类型，时间复杂度为O(n²×m)。如果系统中有大量线程（n很大）但每个线程只使用少量资源，你能否设计一种更节省内存或更高效的方案？** 请描述你的优化思路，并分析其优缺点（无需写出完整代码）。\n\n**出题理由**: 考察算法优化思维。课程资料提到\"实现死锁检测算法本身只需要40行左右代码\"，但优秀实现应考虑可扩展性。此问题引导学生思考稀疏矩阵表示、按需检测等优化手段，区分\"完成功能\"和\"优秀实现\"。",
+    "context_length": 12026,
+    "use_kimi": true,
+    "os_type": "ucore",
+    "rag_enabled": true,
+    "rag_tool_calls": [
+      {
+        "tool": "search_by_lab",
+        "arguments": {
+          "lab_name": "lab5"
+        }
+      },
+      {
+        "tool": "search_os_concept",
+        "arguments": {
+          "concept": "死锁检测",
+          "detail_level": "detailed"
+        }
+      },
+      {
+        "tool": "search_os_concept",
+        "arguments": {
+          "concept": "银行家算法",
+          "detail_level": "detailed"
+        }
+      },
+      {
+        "tool": "search_os_concept",
+        "arguments": {
+          "concept": "互斥锁",
+          "detail_level": "standard"
+        }
+      },
+      {
+        "tool": "search_os_concept",
+        "arguments": {
+          "concept": "信号量",
+          "detail_level": "standard"
+        }
+      }
+    ],
+    "rag_results_length": 12890
+  }
+}

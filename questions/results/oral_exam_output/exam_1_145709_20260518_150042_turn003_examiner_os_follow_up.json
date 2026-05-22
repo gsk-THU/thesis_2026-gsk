@@ -1,0 +1,9 @@
+{
+  "exam_id": "exam_1_145709",
+  "turn_idx": 3,
+  "role": "examiner",
+  "mode": "os_follow_up",
+  "timestamp": "20260518_150042",
+  "raw_llm_output": "copy_from_user具体是如何检查地址合法性的？当访问用户传入的地址引发缺页异常时，内核如何区分这是合法的页面置换需求还是非法地址访问，从而避免内核崩溃？",
+  "final_to_frontend": "copy_from_user具体是如何检查地址合法性的？当访问用户传入的地址引发缺页异常时，内核如何区分这是合法的页面置换需求还是非法地址访问，从而避免内核崩溃？"
+}

@@ -1,9 +1,0 @@
-{
-  "exam_id": "exam_1_132635",
-  "turn_idx": 2,
-  "role": "examiner",
-  "mode": "os_clarification",
-  "timestamp": "20260518_132733",
-  "raw_llm_output": "\"本次调用也计入统计\"意味着：当你查询次数时，这次查询本身也要+1。\n\n1. 必须在**return之前**更新，return之后代码不会执行。\n\n2. 计数应放在**系统调用统一入口**（如`syscall()`函数）中更新，而非每个具体函数内。这样所有系统调用共用一段代码，避免重复编写，也防止遗漏。\n\n<code>\n// 如果在 sys_trace 内部更新，必须在 return 前：\ncase 2:\n    p->syscall_count[SYS_trace]++;  // 先记录本次调用\n    return p->syscall_count[id];    // 再返回查询结果\n</code>",
-  "final_to_frontend": "本次调用也计入统计\"意味着：当你查询次数时，这次查询本身也要+1。\n\n1. 必须在**return之前**更新，return之后代码不会执行。\n\n2. 计数应放在**系统调用统一入口**（如`syscall()`函数）中更新，而非每个具体函数内。这样所有系统调用共用一段代码，避免重复编写，也防止遗漏。\n\n<code>\n// 如果在 sys_trace 内部更新，必须在 return 前：\ncase 2:\n    p->syscall_count[SYS_trace]++;  // 先记录本次调用\n    return p->syscall_count[id];    // 再返回查询结果\n</code>"
-}

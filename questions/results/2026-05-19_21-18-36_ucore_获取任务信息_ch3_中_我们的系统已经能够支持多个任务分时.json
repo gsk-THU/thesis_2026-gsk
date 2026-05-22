@@ -1,0 +1,166 @@
+{
+  "generated_at": "2026-05-19T21:18:36.507579",
+  "os_type": "ucore",
+  "experiment_requirement": "获取任务信息\nch3 中，我们的系统已经能够支持多个任务分时轮流运行，我们希望引入一个新的系统调用 sys_trace （syscall ID: 410）用来追踪当前任务系统调用的历史信息、并进行任务内存的读写。定义如下：\n\nint sys_trace(int trace_request, unsigned long id, uint8_t data);\nsyscall ID: 410\n\n调用规范：\n这个系统调用有三种功能，根据 trace_request 的值不同，执行不同的操作：\n\n如果 trace_request 为 0，则 id 应被视作 uint8_t * ，表示读取当前任务 id 地址处一个字节的无符号整数值。此时应忽略 data 参数。返回值为 id 地址处的值。\n\n如果 trace_request 为 1，则 id 应被视作 uint8_t * ，表示写入 data （作为 uint8_t，即只考虑最低位的一个字节）到该用户程序 id 地址处。返回值应为0。\n\n如果 trace_request 为 2，表示查询当前任务调用编号为 id 的系统调用的次数，返回值为这个调用次数。 本次调用也计入统计 。\n\n否则，忽略其他参数，返回值为 -1。\n\n说明：\nuint8_t 是C语言中的标准类型，表示一个无符号的8位整数。在代码中你可能需要使用 uint8 替代。\n\n你可能会注意到，这个调用的读写并不安全，使用不当可能导致崩溃。这是因为在下一章节实现地址空间之前，系统中缺乏隔离机制。所以我们 不要求你实现安全检查机制，只需通过测试用例即可 。\n\n你还可能注意到，这个系统调用读写本任务内存的功能并不是很有用。这是因为作业的灵感来源 syscall 主要依靠 trace 功能追踪其他任务的信息，但在本章节我们还没有进程、线程等概念，所以简化了操作，只要求追踪自身的信息。",
+  "experiment_title": "获取任务信息\nch3 中，我们的系统已经能够支持多个任务分时轮流运行，我们希望引入一个新的系统调用 ...",
+  "summary": "基于0个修改文件和32个新增文件生成4个问题（OS类型: ucore, RAG检索: 5次）",
+  "total_questions": 4,
+  "questions": [
+    {
+      "id": 1,
+      "category": "implementation",
+      "question": "请看这段系统调用统计相关的代码实现：\n\n\n\n实验要求中提到，当`trace_request`为2时，\"本次调用也计入统计\"。但在这段代码中，`sys_trace`的计数增加逻辑似乎存在时序问题。请分析：\n\n1. 如果测例先调用其他系统调用（如`write`），再调用`sys_trace`查询`write`的次数，返回的计数是否正确？\n2. 当`sys_trace`自身被调用时（即查询`sys_trace`的调用次数），这段代码能否正确实现\"本次调用也计入统计\"的要求？如果不能，应该如何修改？",
+      "rationale": "考察学生对系统调用执行流程的理解，特别是\"本次调用计入统计\"这一特殊要求的实现细节。ch3实验要求明确指出的这一点常被忽略，能区分简单照搬和真正理解的学生。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "// os/syscall.c\nvoid syscall(void)\n{\n    struct trapframe *tf = current->trapframe;\n    uint64 id = tf->a7;\n    \n    // 增加系统调用计数\n    if(id < MAX_SYSCALL_NUM) {\n        current->syscall_times[id]++;\n    }\n    \n    uint64 ret;\n    switch(id) {\n        case SYS_trace:\n            ret = sys_trace(tf->a0, tf->a1, tf->a2);\n            break;\n        // ... 其他系统调用\n    }\n    tf->a0 = ret;\n}"
+      ]
+    },
+    {
+      "id": 2,
+      "category": "concept",
+      "question": "请看`sys_trace`中处理内存读写的代码片段：\n\n\n\n实验要求中提到：\"这个调用的读写并不安全，使用不当可能导致崩溃\"。结合课程知识库中关于系统调用的描述（\"syscall 本质上属于一种异常/中断，它在 riscv 的汇编指令中以 ecall 的形式出现\"），请回答：\n\n1. 为什么在ch3中可以直接解引用用户传入的指针`id`而不触发异常？此时CPU处于什么特权级？\n2. 实验提示提到\"这是因为在下一章节实现地址空间之前，系统中缺乏隔离机制\"。请具体说明，当ch4引入地址空间（Address Space）后，直接解引用用户态指针会导致什么问题？届时应该如何正确实现内存读写？",
+      "rationale": "结合课程资料中关于系统调用本质（异常/中断）的说明，考察学生对特权级和地址空间隔离的理解。这是ch3到ch4架构演进的关键认知点。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "int sys_trace(int trace_request, unsigned long id, uint8_t data)\n{\n    uint8_t *addr = (uint8_t *)id;\n    \n    switch(trace_request) {\n        case 0:  // 读内存\n            return (int)(*addr);  // 直接解引用用户传入的地址\n        case 1:  // 写内存\n            *addr = data;         // 直接写入用户传入的地址\n            return 0;\n        // ...\n    }\n}"
+      ]
+    },
+    {
+      "id": 3,
+      "category": "implementation",
+      "question": "请看任务控制块中系统调用统计数组的定义和访问代码：\n\n\n\n这段代码在处理`id`参数时存在潜在问题。请分析：\n\n1. 如果用户传入的`id`大于等于`MAX_SYSCALL_NUM`（比如1000），会发生什么？这与实验要求中\"返回值为-1\"的规范是否冲突？\n2. 在ch3的多任务分时运行环境下，如果任务A调用`sys_trace`读取某地址，在读取过程中发生时钟中断并切换到任务B，这种并发是否会影响统计计数的准确性？为什么？",
+      "rationale": "考察边界检查意识和多任务环境下的数据竞争问题。ch3已实现多任务分时运行，学生需要考虑任务切换对共享数据（虽然这里是 per-task 数据）的影响。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "// os/proc.h\n#define MAX_SYSCALL_NUM 500\n\nstruct task {\n    struct context context;\n    uint64 syscall_times[MAX_SYSCALL_NUM];  // 系统调用计数数组\n    // ... 其他字段\n};\n\n// os/syscall.c\nint sys_trace(int trace_request, unsigned long id, uint8_t data)\n{\n    struct task *t = current;\n    if(trace_request == 2) {\n        // 查询编号为id的系统调用次数\n        return t->syscall_times[id];  // 直接以id为下标访问\n    }\n    // ...\n}"
+      ]
+    },
+    {
+      "id": 4,
+      "category": "debugging",
+      "question": "假设测例运行时出现以下异常行为：当连续两次调用`sys_trace(2, 410, 0)`（查询sys_trace自身的调用次数）时，第一次返回0，第二次返回1。但期望的结果是第一次返回1，第二次返回2。\n\n检查以下可能的代码实现：\n\n\n\n请分析：\n1. 这种时序问题最可能的原因是什么？请结合问题1中系统调用入口的计数逻辑，说明正确的计数时机应该在哪里。\n2. 如果学生在`sys_trace`函数内部手动增加`syscall_times[SYS_trace]`的计数，可能会导致什么新的问题？（提示：考虑`trace_request`为0或1时的返回值）",
+      "rationale": "这是针对\"本次调用计入统计\"要求的深度追问，测试学生是否能理解系统调用处理的完整生命周期（入口计数 vs 函数内计数），以及不同`trace_request`分支对统计的影响。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "int sys_trace(int trace_request, unsigned long id, uint8_t data)\n{\n    struct task *t = current_task();\n    \n    if(trace_request == 2) {\n        int count = t->syscall_times[id];\n        // 某种计数逻辑\n        return count;\n    }\n    // ...\n    return -1;\n}"
+      ]
+    }
+  ],
+  "diff_summary": {
+    "added_files": [
+      "ch3/console.c",
+      "ch3/console.h",
+      "ch3/const.h",
+      "ch3/defs.h",
+      "ch3/entry.S",
+      "ch3/kernel.ld",
+      "ch3/kernelld.py",
+      "ch3/loader.c",
+      "ch3/loader.h",
+      "ch3/log.h",
+      "ch3/main.c",
+      "ch3/pack.py",
+      "ch3/printf.c",
+      "ch3/printf.h",
+      "ch3/proc.c",
+      "ch3/proc.h",
+      "ch3/riscv.h",
+      "ch3/sbi.c",
+      "ch3/sbi.h",
+      "ch3/string.c",
+      "ch3/string.h",
+      "ch3/switch.S",
+      "ch3/syscall.c",
+      "ch3/syscall.h",
+      "ch3/syscall_ids.h",
+      "ch3/taskdef.h",
+      "ch3/timer.c",
+      "ch3/timer.h",
+      "ch3/trampoline.S",
+      "ch3/trap.c",
+      "ch3/trap.h",
+      "ch3/types.h"
+    ],
+    "deleted_files": [
+      "ch2/console.c",
+      "ch2/console.h",
+      "ch2/const.h",
+      "ch2/defs.h",
+      "ch2/entry.S",
+      "ch2/kernel.ld",
+      "ch2/kernelld.py",
+      "ch2/loader.c",
+      "ch2/loader.h",
+      "ch2/log.h",
+      "ch2/main.c",
+      "ch2/pack.py",
+      "ch2/printf.c",
+      "ch2/printf.h",
+      "ch2/riscv.h",
+      "ch2/sbi.c",
+      "ch2/sbi.h",
+      "ch2/string.c",
+      "ch2/string.h",
+      "ch2/syscall.c",
+      "ch2/syscall.h",
+      "ch2/syscall_ids.h",
+      "ch2/trampoline.S",
+      "ch2/trap.c",
+      "ch2/trap.h",
+      "ch2/types.h"
+    ],
+    "modified_files": [],
+    "summary": "新增文件: 32个\n删除文件: 26个\n修改文件: 0个\n未变文件: 0个"
+  },
+  "metadata": {
+    "diff_summary": "新增文件: 32个\n删除文件: 26个\n修改文件: 0个\n未变文件: 0个",
+    "total_files": 58,
+    "raw_response": "基于实验要求和代码变更摘要，我设计了以下5个面试问题。这些问题聚焦于`sys_trace`系统调用的关键实现细节，结合ch3阶段的多任务架构特点。\n\n## 问题1 [implementation]\n请看这段系统调用统计相关的代码实现：\n\n<code>\n// os/syscall.c\nvoid syscall(void)\n{\n    struct trapframe *tf = current->trapframe;\n    uint64 id = tf->a7;\n    \n    // 增加系统调用计数\n    if(id < MAX_SYSCALL_NUM) {\n        current->syscall_times[id]++;\n    }\n    \n    uint64 ret;\n    switch(id) {\n        case SYS_trace:\n            ret = sys_trace(tf->a0, tf->a1, tf->a2);\n            break;\n        // ... 其他系统调用\n    }\n    tf->a0 = ret;\n}\n</code>\n\n实验要求中提到，当`trace_request`为2时，\"本次调用也计入统计\"。但在这段代码中，`sys_trace`的计数增加逻辑似乎存在时序问题。请分析：\n\n1. 如果测例先调用其他系统调用（如`write`），再调用`sys_trace`查询`write`的次数，返回的计数是否正确？\n2. 当`sys_trace`自身被调用时（即查询`sys_trace`的调用次数），这段代码能否正确实现\"本次调用也计入统计\"的要求？如果不能，应该如何修改？\n\n**出题理由**: 考察学生对系统调用执行流程的理解，特别是\"本次调用计入统计\"这一特殊要求的实现细节。ch3实验要求明确指出的这一点常被忽略，能区分简单照搬和真正理解的学生。\n\n---\n\n## 问题2 [concept]\n请看`sys_trace`中处理内存读写的代码片段：\n\n<code>\nint sys_trace(int trace_request, unsigned long id, uint8_t data)\n{\n    uint8_t *addr = (uint8_t *)id;\n    \n    switch(trace_request) {\n        case 0:  // 读内存\n            return (int)(*addr);  // 直接解引用用户传入的地址\n        case 1:  // 写内存\n            *addr = data;         // 直接写入用户传入的地址\n            return 0;\n        // ...\n    }\n}\n</code>\n\n实验要求中提到：\"这个调用的读写并不安全，使用不当可能导致崩溃\"。结合课程知识库中关于系统调用的描述（\"syscall 本质上属于一种异常/中断，它在 riscv 的汇编指令中以 ecall 的形式出现\"），请回答：\n\n1. 为什么在ch3中可以直接解引用用户传入的指针`id`而不触发异常？此时CPU处于什么特权级？\n2. 实验提示提到\"这是因为在下一章节实现地址空间之前，系统中缺乏隔离机制\"。请具体说明，当ch4引入地址空间（Address Space）后，直接解引用用户态指针会导致什么问题？届时应该如何正确实现内存读写？\n\n**出题理由**: 结合课程资料中关于系统调用本质（异常/中断）的说明，考察学生对特权级和地址空间隔离的理解。这是ch3到ch4架构演进的关键认知点。\n\n---\n\n## 问题3 [implementation]\n请看任务控制块中系统调用统计数组的定义和访问代码：\n\n<code>\n// os/proc.h\n#define MAX_SYSCALL_NUM 500\n\nstruct task {\n    struct context context;\n    uint64 syscall_times[MAX_SYSCALL_NUM];  // 系统调用计数数组\n    // ... 其他字段\n};\n\n// os/syscall.c\nint sys_trace(int trace_request, unsigned long id, uint8_t data)\n{\n    struct task *t = current;\n    if(trace_request == 2) {\n        // 查询编号为id的系统调用次数\n        return t->syscall_times[id];  // 直接以id为下标访问\n    }\n    // ...\n}\n</code>\n\n这段代码在处理`id`参数时存在潜在问题。请分析：\n\n1. 如果用户传入的`id`大于等于`MAX_SYSCALL_NUM`（比如1000），会发生什么？这与实验要求中\"返回值为-1\"的规范是否冲突？\n2. 在ch3的多任务分时运行环境下，如果任务A调用`sys_trace`读取某地址，在读取过程中发生时钟中断并切换到任务B，这种并发是否会影响统计计数的准确性？为什么？\n\n**出题理由**: 考察边界检查意识和多任务环境下的数据竞争问题。ch3已实现多任务分时运行，学生需要考虑任务切换对共享数据（虽然这里是 per-task 数据）的影响。\n\n---\n\n## 问题4 [debugging]\n假设测例运行时出现以下异常行为：当连续两次调用`sys_trace(2, 410, 0)`（查询sys_trace自身的调用次数）时，第一次返回0，第二次返回1。但期望的结果是第一次返回1，第二次返回2。\n\n检查以下可能的代码实现：\n\n<code>\nint sys_trace(int trace_request, unsigned long id, uint8_t data)\n{\n    struct task *t = current_task();\n    \n    if(trace_request == 2) {\n        int count = t->syscall_times[id];\n        // 某种计数逻辑\n        return count;\n    }\n    // ...\n    return -1;\n}\n</code>\n\n请分析：\n1. 这种时序问题最可能的原因是什么？请结合问题1中系统调用入口的计数逻辑，说明正确的计数时机应该在哪里。\n2. 如果学生在`sys_trace`函数内部手动增加`syscall_times[SYS_trace]`的计数，可能会导致什么新的问题？（提示：考虑`trace_request`为0或1时的返回值）\n\n**出题理由**: 这是针对\"本次调用计入统计\"要求的深度追问，测试学生是否能理解系统调用处理的完整生命周期（入口计数 vs 函数内计数），以及不同`trace_request`分支对统计的影响。\n\n---\n\n## 问题5 [understanding]\n实验要求提到：\"你还可能注意到，这个系统调用读写本任务内存的功能并不是很有用。这是因为作业的灵感来源 syscall 主要依靠 trace 功能追踪其他任务的信息\"。\n\n假设在ch3的多任务环境下，你想扩展`sys_trace`使其能够追踪**其他任务**（而非当前任务）的系统调用次数，请分析：\n\n<code>\n// 假设扩展后的接口：pid表示目标任务，-1表示当前任务\nint sys_trace_ext(int trace_request, int pid, unsigned long id, uint8_t data)\n{\n    struct task *target;\n    if(pid == -1) {\n        target = current;\n    } else {\n        target = find_task_by_pid(pid);  // 假设存在此函数\n    }\n    \n    if(target == NULL) return -1;\n    \n    if(trace_request == 2) {\n        return target->syscall_times[id];  // 访问其他任务的统计数组\n    }\n    // ...\n}\n</code>\n\n请回答：\n1. 在ch3的实现中，任务（任务控制块）通常是如何组织的？（参考课程知识库中\"TaskManagerInner中我们使用向量Vec来保存任务控制块\"）\n2. 如果允许一个任务读写另一个任务的内存（`trace_request`为0或1时），会违反操作系统的什么基本原则？这在ch4引入地址空间后为什么变得更加危险？\n3. 为什么在ch3中即使没有地址空间隔离，直接访问`target`指向的其他任务数据结构也需要谨慎？（提示：考虑任务状态）\n\n**出题理由**: 结合课程资料中关于任务控制块管理的内容，引导学生思考操作系统安全隔离的基本原则，以及ch3架构的局限性，为后续章节学习做铺垫。",
+    "context_length": 12026,
+    "use_kimi": true,
+    "os_type": "ucore",
+    "rag_enabled": true,
+    "rag_tool_calls": [
+      {
+        "tool": "search_by_lab",
+        "arguments": {
+          "lab_name": "ch3"
+        }
+      },
+      {
+        "tool": "search_os_concept",
+        "arguments": {
+          "concept": "系统调用",
+          "detail_level": "detailed"
+        }
+      },
+      {
+        "tool": "search_os_concept",
+        "arguments": {
+          "concept": "任务控制块",
+          "detail_level": "standard"
+        }
+      },
+      {
+        "tool": "search_by_code_symbol",
+        "arguments": {
+          "symbol_name": "syscall",
+          "context": "系统调用分发和处理"
+        }
+      },
+      {
+        "tool": "search_os_concept",
+        "arguments": {
+          "concept": "用户态和内核态",
+          "detail_level": "standard"
+        }
+      }
+    ],
+    "rag_results_length": 10459
+  }
+}

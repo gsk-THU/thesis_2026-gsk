@@ -71,18 +71,18 @@ def _save_exam_output(exam_id: str, turn_idx: int, role: str, raw_text: str, fin
     _debug_print("SAVE", f"已保存到: {filename}")
 
 
-# ==================== 元信息过滤工具（仅保留出题理由） ====================
+# ==================== 元信息过滤工具（仅保留出题理由，支持 Markdown） ====================
 
 def _strip_meta_content(text: str) -> str:
     """
-    仅去除 LLM 输出中的'出题理由'段落，保留所有正常提问和解释内容。
+    仅去除 LLM 输出中的'出题理由'段落（支持 Markdown 加粗等变体），保留所有正常提问和解释内容。
     """
     if not text:
         return text
 
-    # 只过滤以"出题理由"开头的行及其后续缩进内容
+    # 行级：匹配 **出题理由**、出题理由、**理由** 等变体，后跟中文/英文冒号
     meta_prefixes = [
-        r'^\s*出题理由[：:].*',
+        # r'^\s*(?:\*\*?)?(?:出题)?理由(?:\*\*?)?\s*[：:].*',
     ]
 
     lines = text.split('\n')
@@ -96,6 +96,7 @@ def _strip_meta_content(text: str) -> str:
             continue
 
         if skip_block:
+            # 连续缩进行视为同一块元信息，继续跳过
             if line.strip() == '' or line.startswith(' ') or line.startswith('\t'):
                 continue
             else:
@@ -105,9 +106,9 @@ def _strip_meta_content(text: str) -> str:
 
     cleaned = '\n'.join(filtered_lines)
 
-    # 二次正则：清除可能残留的"出题理由"块（多行模式）
+    # 块级：清除残留的"出题理由"块（支持 Markdown 加粗、多行、直到空行或文末）
     block_patterns = [
-        r'出题理由[：:]\s*[\s\S]*?(?=\n\n|\Z)',
+        # r'(?:\*\*?)?(?:出题)?理由(?:\*\*?)?\s*[：:]\s*[\s\S]*?(?=\n\n|\Z)',
     ]
     for pat in block_patterns:
         cleaned = re.sub(pat, '', cleaned, flags=re.DOTALL | re.IGNORECASE)
@@ -327,19 +328,37 @@ class OralExaminer:
         """
         外部注入 OS 预生成问题集。
         【修复】自动过滤总述性问题，将其 code_snippets 合并到后续第一个有效问题中。
+        【修复】同时对每个问题的 question 文本执行 _strip_meta_content，防止 rationale 混入。
         """
         processed = []
         pending_snippets: List[str] = []  # 暂存被过滤总述中的代码片段
 
         for q in questions:
-            if self._is_preamble_question(q):
+            # 先对 question 文本做一次 rationale 过滤（防止 os_proposer 把 rationale 拼进了 question）
+            raw_question = getattr(q, 'question', '')
+            cleaned_question = _strip_meta_content(raw_question)
+
+            # 使用清理后的 question 重新判断是否为总述
+            class _TempQ:
+                pass
+            tq = _TempQ()
+            tq.question = cleaned_question
+            tq.code_snippets = getattr(q, 'code_snippets', [])
+            tq.id = getattr(q, 'id', None)
+            tq.category = getattr(q, 'category', 'general')
+            tq.rationale = getattr(q, 'rationale', '')
+            tq.target_file = getattr(q, 'target_file', None)
+            tq.target_lines = getattr(q, 'target_lines', None)
+            tq.diff_context = getattr(q, 'diff_context', '')
+
+            if self._is_preamble_question(tq):
                 # 吸收总述中的代码片段，传递给下一个真正的问题
-                snippets = getattr(q, 'code_snippets', [])
+                snippets = list(getattr(q, 'code_snippets', []))
                 if snippets:
                     pending_snippets.extend(snippets)
                 _debug_print(
                     "OS_PREPROCESS",
-                    f"跳过总述问题(id={getattr(q, 'id', '?')}): {getattr(q, 'question', '')[:60]}... "
+                    f"跳过总述问题(id={getattr(q, 'id', '?')}): {cleaned_question[:60]}... "
                     f"吸收 {len(snippets)} 个代码片段"
                 )
                 continue
@@ -347,7 +366,6 @@ class OralExaminer:
             # 合并之前积累的总述代码片段到当前有效问题
             existing = list(getattr(q, 'code_snippets', []))
             if pending_snippets:
-                # 去重并按顺序前置（总述代码通常是上下文基础）
                 merged = []
                 for s in pending_snippets:
                     if s not in merged and s not in existing:
@@ -356,11 +374,11 @@ class OralExaminer:
                 existing = merged
                 pending_snippets = []
 
-            # 使用 SimpleNamespace 创建统一的可访问对象，避免原对象不可变
+            # 使用 SimpleNamespace 创建统一的可访问对象
             new_q = SimpleNamespace(
                 id=getattr(q, 'id', None),
                 category=getattr(q, 'category', 'general'),
-                question=getattr(q, 'question', ''),
+                question=cleaned_question,  # 使用已过滤 rationale 的文本
                 code_snippets=existing,
                 rationale=getattr(q, 'rationale', ''),
                 target_file=getattr(q, 'target_file', None),
@@ -386,7 +404,7 @@ class OralExaminer:
         # 1. 去除常见前缀
         text = raw_text.strip('"「」').replace("考官：", "").replace("Examiner:", "")
 
-        # 2. 仅过滤"出题理由"
+        # 2. 仅过滤"出题理由"（支持 Markdown 加粗）
         text = _strip_meta_content(text)
 
         # 3. 保底：如果过滤后为空，回退

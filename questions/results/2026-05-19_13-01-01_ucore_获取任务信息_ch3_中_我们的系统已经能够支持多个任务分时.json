@@ -1,0 +1,159 @@
+{
+  "generated_at": "2026-05-19T13:01:01.657553",
+  "os_type": "ucore",
+  "experiment_requirement": "获取任务信息\nch3 中，我们的系统已经能够支持多个任务分时轮流运行，我们希望引入一个新的系统调用 sys_trace （syscall ID: 410）用来追踪当前任务系统调用的历史信息、并进行任务内存的读写。定义如下：\n\nint sys_trace(int trace_request, unsigned long id, uint8_t data);\nsyscall ID: 410\n\n调用规范：\n这个系统调用有三种功能，根据 trace_request 的值不同，执行不同的操作：\n\n如果 trace_request 为 0，则 id 应被视作 uint8_t * ，表示读取当前任务 id 地址处一个字节的无符号整数值。此时应忽略 data 参数。返回值为 id 地址处的值。\n\n如果 trace_request 为 1，则 id 应被视作 uint8_t * ，表示写入 data （作为 uint8_t，即只考虑最低位的一个字节）到该用户程序 id 地址处。返回值应为0。\n\n如果 trace_request 为 2，表示查询当前任务调用编号为 id 的系统调用的次数，返回值为这个调用次数。 本次调用也计入统计 。\n\n否则，忽略其他参数，返回值为 -1。\n\n说明：\nuint8_t 是C语言中的标准类型，表示一个无符号的8位整数。在代码中你可能需要使用 uint8 替代。\n\n你可能会注意到，这个调用的读写并不安全，使用不当可能导致崩溃。这是因为在下一章节实现地址空间之前，系统中缺乏隔离机制。所以我们 不要求你实现安全检查机制，只需通过测试用例即可 。\n\n你还可能注意到，这个系统调用读写本任务内存的功能并不是很有用。这是因为作业的灵感来源 syscall 主要依靠 trace 功能追踪其他任务的信息，但在本章节我们还没有进程、线程等概念，所以简化了操作，只要求追踪自身的信息。",
+  "experiment_title": "获取任务信息\nch3 中，我们的系统已经能够支持多个任务分时轮流运行，我们希望引入一个新的系统调用 ...",
+  "summary": "基于0个修改文件和32个新增文件生成4个问题（OS类型: ucore, RAG检索: 4次）",
+  "total_questions": 4,
+  "questions": [
+    {
+      "id": 1,
+      "category": "implementation",
+      "question": "你在实现`sys_trace`系统调用时，需要处理三种不同的`trace_request`模式。请看下面这段典型的系统调用分发代码：\n\n\n\n这段代码在处理`trace_request = 0`（读取模式）时，直接将`id`参数作为指针解引用。根据课程实验要求，这种实现\"不安全\"，可能导致崩溃。请具体说明：**在什么情况下这个解引用操作会导致panic或数据错误？** 结合ch3尚未实现地址空间隔离的背景，解释为什么此时不需要（也无法）做安全检查。",
+      "rationale": "考察学生对裸指针解引用风险的理解，以及ch3内存管理特点（无地址空间隔离）的认识。区分\"知道代码怎么写\"和\"理解为什么这样写\"的学生。结合实验要求中明确提到的\"缺乏隔离机制\"和\"不要求安全检查\"的提示。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "// syscall.c\nvoid syscall(void)\n{\n    struct proc *p = curr_proc();\n    uint64 a0 = p->trapframe->a0;  // trace_request\n    uint64 a1 = p->trapframe->a1;  // id\n    uint64 a2 = p->trapframe->a2;  // data\n    \n    switch(p->trapframe->a7) {     // syscall ID\n    case SYS_getpid:\n        p->trapframe->a0 = p->pid;\n        break;\n    case SYS_trace:  // syscall ID 410\n        // 你的实现\n        if(a0 == 0) {\n            // 读取模式\n            p->trapframe->a0 = *(uint8*)a1;\n        } else if(a0 == 1) {\n            // 写入模式\n            *(uint8*)a1 = (uint8)a2;\n            p->trapframe->a0 = 0;\n        } else if(a0 == 2) {\n            // 查询模式\n            p->trapframe->a0 = p->syscall_count[a1];\n        } else {\n            p->trapframe->a0 = -1;\n        }\n        break;\n    }\n    // 本次调用计入统计\n    p->syscall_count[p->trapframe->a7]++;\n}"
+      ]
+    },
+    {
+      "id": 2,
+      "category": "implementation",
+      "question": "`sys_trace`要求实现系统调用次数统计（`trace_request = 2`）。请看以下任务控制块（TCB）的数据结构定义：\n\n\n\n这段代码在计数统计时有一个**边界情况处理缺陷**，可能导致统计不准确。请指出问题所在，并说明正确的处理顺序。此外，为什么在本次调用中也需要将`SYS_trace`本身计入统计？",
+      "rationale": "考察边界条件处理能力和对\"本次调用也计入统计\"要求的理解。学生容易犯的错误是在统计本次调用之前返回，导致统计遗漏，或在边界检查前就访问数组。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "// proc.h\n#define MAX_SYSCALL_NUM 500\n\nstruct proc {\n    // ... 其他字段\n    uint64 syscall_count[MAX_SYSCALL_NUM];  // 系统调用计数数组\n    // ...\n};\n\n// syscall.c 中的查询逻辑\ncase 2:  // 查询编号为id的系统调用次数\n    if(id >= MAX_SYSCALL_NUM) {\n        p->trapframe->a0 = -1;\n    } else {\n        p->trapframe->a0 = p->syscall_count[id];\n    }\n    break;"
+      ]
+    },
+    {
+      "id": 3,
+      "category": "concept",
+      "question": "根据课程知识库，ch3实现了**分时多任务系统与抢占式调度**（参见《分时多任务系统的背景》和《时间片轮转调度》）。`sys_trace`的内存读写功能直接操作用户态地址，请看以下场景：\n\n\n\n在ch3的实现中，所有任务共享同一个地址空间（无隔离）。请分析：**如果任务A在`sys_trace`写入过程中被抢占，任务B立即调用`sys_trace`读取同一地址，会出现什么问题？** 这种\"非原子性\"操作对多任务系统的稳定性有何影响？结合课程中提到的\"协作式调度vs抢占式调度\"概念，说明为什么在抢占式调度下这种直接内存访问更加危险。",
+      "rationale": "结合课程知识库中关于分时多任务和抢占式调度的内容，考察学生对并发环境下数据竞争的理解，以及ch3内存模型缺陷的认识。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "// 用户程序A正在执行\nvoid user_task() {\n    uint8_t value = 100;\n    uint8_t *ptr = &value;\n    \n    // 执行sys_trace写入\n    trace(1, (unsigned long)ptr, 200);  // 向ptr写入200\n    \n    // 假设在此时发生时钟中断，切换到任务B\n    // 任务B也调用sys_trace读取同一地址...\n}"
+      ]
+    },
+    {
+      "id": 4,
+      "category": "optimization",
+      "question": "你实现的`sys_trace`在每次系统调用时都需要更新计数数组：\n\n\n\n考虑到ch3支持**多任务分时调度**，且系统调用可能频繁发生（如`yield`或`write`），这种实现方式在性能上有何潜在问题？如果后续需要支持更多的系统调用（比如超过500个），当前基于固定大小数组的实现会有哪些限制？请提出一种改进方案，在保持功能的前提下优化内存使用。",
+      "rationale": "考察性能意识和数据结构选择能力。固定数组在系统调用频繁或数量增加时会造成内存浪费或溢出，引导学生思考可扩展性设计。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "// 在syscall处理结束时\nvoid syscall(void) {\n    // ... 处理具体系统调用 ...\n    \n    // 统计本次调用（无论是否是SYS_trace）\n    struct proc *p = curr_proc();\n    uint64 syscall_id = p->trapframe->a7;\n    if(syscall_id < MAX_SYSCALL_NUM) {\n        p->syscall_count[syscall_id]++;\n    }\n}"
+      ]
+    }
+  ],
+  "diff_summary": {
+    "added_files": [
+      "ch3/console.c",
+      "ch3/console.h",
+      "ch3/const.h",
+      "ch3/defs.h",
+      "ch3/entry.S",
+      "ch3/kernel.ld",
+      "ch3/kernelld.py",
+      "ch3/loader.c",
+      "ch3/loader.h",
+      "ch3/log.h",
+      "ch3/main.c",
+      "ch3/pack.py",
+      "ch3/printf.c",
+      "ch3/printf.h",
+      "ch3/proc.c",
+      "ch3/proc.h",
+      "ch3/riscv.h",
+      "ch3/sbi.c",
+      "ch3/sbi.h",
+      "ch3/string.c",
+      "ch3/string.h",
+      "ch3/switch.S",
+      "ch3/syscall.c",
+      "ch3/syscall.h",
+      "ch3/syscall_ids.h",
+      "ch3/taskdef.h",
+      "ch3/timer.c",
+      "ch3/timer.h",
+      "ch3/trampoline.S",
+      "ch3/trap.c",
+      "ch3/trap.h",
+      "ch3/types.h"
+    ],
+    "deleted_files": [
+      "ch2/console.c",
+      "ch2/console.h",
+      "ch2/const.h",
+      "ch2/defs.h",
+      "ch2/entry.S",
+      "ch2/kernel.ld",
+      "ch2/kernelld.py",
+      "ch2/loader.c",
+      "ch2/loader.h",
+      "ch2/log.h",
+      "ch2/main.c",
+      "ch2/pack.py",
+      "ch2/printf.c",
+      "ch2/printf.h",
+      "ch2/riscv.h",
+      "ch2/sbi.c",
+      "ch2/sbi.h",
+      "ch2/string.c",
+      "ch2/string.h",
+      "ch2/syscall.c",
+      "ch2/syscall.h",
+      "ch2/syscall_ids.h",
+      "ch2/trampoline.S",
+      "ch2/trap.c",
+      "ch2/trap.h",
+      "ch2/types.h"
+    ],
+    "modified_files": [],
+    "summary": "新增文件: 32个\n删除文件: 26个\n修改文件: 0个\n未变文件: 0个"
+  },
+  "metadata": {
+    "diff_summary": "新增文件: 32个\n删除文件: 26个\n修改文件: 0个\n未变文件: 0个",
+    "total_files": 58,
+    "raw_response": "基于你提供的实验要求和代码变更，我针对ch3实验中`sys_trace`系统调用的实现设计以下面试问题。这些问题聚焦在系统调用机制、内存访问安全性和多任务调度等核心知识点上。\n\n## 问题1 [implementation]\n你在实现`sys_trace`系统调用时，需要处理三种不同的`trace_request`模式。请看下面这段典型的系统调用分发代码：\n\n<code>\n// syscall.c\nvoid syscall(void)\n{\n    struct proc *p = curr_proc();\n    uint64 a0 = p->trapframe->a0;  // trace_request\n    uint64 a1 = p->trapframe->a1;  // id\n    uint64 a2 = p->trapframe->a2;  // data\n    \n    switch(p->trapframe->a7) {     // syscall ID\n    case SYS_getpid:\n        p->trapframe->a0 = p->pid;\n        break;\n    case SYS_trace:  // syscall ID 410\n        // 你的实现\n        if(a0 == 0) {\n            // 读取模式\n            p->trapframe->a0 = *(uint8*)a1;\n        } else if(a0 == 1) {\n            // 写入模式\n            *(uint8*)a1 = (uint8)a2;\n            p->trapframe->a0 = 0;\n        } else if(a0 == 2) {\n            // 查询模式\n            p->trapframe->a0 = p->syscall_count[a1];\n        } else {\n            p->trapframe->a0 = -1;\n        }\n        break;\n    }\n    // 本次调用计入统计\n    p->syscall_count[p->trapframe->a7]++;\n}\n</code>\n\n这段代码在处理`trace_request = 0`（读取模式）时，直接将`id`参数作为指针解引用。根据课程实验要求，这种实现\"不安全\"，可能导致崩溃。请具体说明：**在什么情况下这个解引用操作会导致panic或数据错误？** 结合ch3尚未实现地址空间隔离的背景，解释为什么此时不需要（也无法）做安全检查。\n\n**出题理由**: 考察学生对裸指针解引用风险的理解，以及ch3内存管理特点（无地址空间隔离）的认识。区分\"知道代码怎么写\"和\"理解为什么这样写\"的学生。结合实验要求中明确提到的\"缺乏隔离机制\"和\"不要求安全检查\"的提示。\n\n---\n\n## 问题2 [implementation]\n`sys_trace`要求实现系统调用次数统计（`trace_request = 2`）。请看以下任务控制块（TCB）的数据结构定义：\n\n<code>\n// proc.h\n#define MAX_SYSCALL_NUM 500\n\nstruct proc {\n    // ... 其他字段\n    uint64 syscall_count[MAX_SYSCALL_NUM];  // 系统调用计数数组\n    // ...\n};\n\n// syscall.c 中的查询逻辑\ncase 2:  // 查询编号为id的系统调用次数\n    if(id >= MAX_SYSCALL_NUM) {\n        p->trapframe->a0 = -1;\n    } else {\n        p->trapframe->a0 = p->syscall_count[id];\n    }\n    break;\n</code>\n\n这段代码在计数统计时有一个**边界情况处理缺陷**，可能导致统计不准确。请指出问题所在，并说明正确的处理顺序。此外，为什么在本次调用中也需要将`SYS_trace`本身计入统计？\n\n**出题理由**: 考察边界条件处理能力和对\"本次调用也计入统计\"要求的理解。学生容易犯的错误是在统计本次调用之前返回，导致统计遗漏，或在边界检查前就访问数组。\n\n---\n\n## 问题3 [concept]\n根据课程知识库，ch3实现了**分时多任务系统与抢占式调度**（参见《分时多任务系统的背景》和《时间片轮转调度》）。`sys_trace`的内存读写功能直接操作用户态地址，请看以下场景：\n\n<code>\n// 用户程序A正在执行\nvoid user_task() {\n    uint8_t value = 100;\n    uint8_t *ptr = &value;\n    \n    // 执行sys_trace写入\n    trace(1, (unsigned long)ptr, 200);  // 向ptr写入200\n    \n    // 假设在此时发生时钟中断，切换到任务B\n    // 任务B也调用sys_trace读取同一地址...\n}\n</code>\n\n在ch3的实现中，所有任务共享同一个地址空间（无隔离）。请分析：**如果任务A在`sys_trace`写入过程中被抢占，任务B立即调用`sys_trace`读取同一地址，会出现什么问题？** 这种\"非原子性\"操作对多任务系统的稳定性有何影响？结合课程中提到的\"协作式调度vs抢占式调度\"概念，说明为什么在抢占式调度下这种直接内存访问更加危险。\n\n**出题理由**: 结合课程知识库中关于分时多任务和抢占式调度的内容，考察学生对并发环境下数据竞争的理解，以及ch3内存模型缺陷的认识。\n\n---\n\n## 问题4 [optimization]\n你实现的`sys_trace`在每次系统调用时都需要更新计数数组：\n\n<code>\n// 在syscall处理结束时\nvoid syscall(void) {\n    // ... 处理具体系统调用 ...\n    \n    // 统计本次调用（无论是否是SYS_trace）\n    struct proc *p = curr_proc();\n    uint64 syscall_id = p->trapframe->a7;\n    if(syscall_id < MAX_SYSCALL_NUM) {\n        p->syscall_count[syscall_id]++;\n    }\n}\n</code>\n\n考虑到ch3支持**多任务分时调度**，且系统调用可能频繁发生（如`yield`或`write`），这种实现方式在性能上有何潜在问题？如果后续需要支持更多的系统调用（比如超过500个），当前基于固定大小数组的实现会有哪些限制？请提出一种改进方案，在保持功能的前提下优化内存使用。\n\n**出题理由**: 考察性能意识和数据结构选择能力。固定数组在系统调用频繁或数量增加时会造成内存浪费或溢出，引导学生思考可扩展性设计。\n\n---\n\n## 问题5 [understanding]\n根据课程资料（参见《系统调用》章节），系统调用通过`ecall`指令触发，从U态切换到S态。`sys_trace`的特殊之处在于它允许内核直接读写用户态内存。请解释以下代码片段中**特权级转换和内存访问的关系**：\n\n<code>\n// entry.S - 异常入口\n__alltraps:\n    # 保存用户态寄存器到trapframe\n    # ...\n    # 设置内核栈\n    # ...\n    call trap_handler  # 转到C代码处理\n\n// trap.c\nvoid trap_handler() {\n    struct proc *p = curr_proc();\n    uint64 cause = r_scause();\n    \n    if(cause == 8 || cause == 9) {  // U-mode/S-mode environment call\n        syscall();\n        p->trapframe->epc += 4;  // 跳过ecall指令\n    }\n    // ...\n}\n</code>\n\n问题：**既然ch3中内核和用户态共享地址空间，为什么`sys_trace`可以直接解引用用户态指针（如`*(uint8*)a1`），而在实现了地址空间隔离的ch4及之后章节，这种直接解引用会导致问题？** 请结合RISC-V特权架构（S态vs U态）和后续章节（ch4）的页表隔离机制说明。\n\n**出题理由**: 考察学生对特权级、地址空间、MMU等概念的理解深度，建立ch3到ch4的知识联系，理解\"为什么ch3可以裸指针访问而后续章节不行\"的架构演进逻辑。",
+    "context_length": 10079,
+    "use_kimi": true,
+    "os_type": "ucore",
+    "rag_enabled": true,
+    "rag_tool_calls": [
+      {
+        "tool": "search_by_lab",
+        "arguments": {
+          "lab_name": "ch3"
+        }
+      },
+      {
+        "tool": "search_os_concept",
+        "arguments": {
+          "concept": "系统调用",
+          "detail_level": "detailed"
+        }
+      },
+      {
+        "tool": "search_os_concept",
+        "arguments": {
+          "concept": "多任务调度",
+          "detail_level": "standard"
+        }
+      },
+      {
+        "tool": "search_by_code_symbol",
+        "arguments": {
+          "symbol_name": "syscall",
+          "context": "系统调用分发和处理"
+        }
+      }
+    ],
+    "rag_results_length": 8360
+  }
+}

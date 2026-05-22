@@ -1,0 +1,9 @@
+{
+  "exam_id": "exam_1_144212",
+  "turn_idx": 2,
+  "role": "examiner",
+  "mode": "os_clarification",
+  "timestamp": "20260518_144255",
+  "raw_llm_output": "系统调用入口会先执行`p->syscall_count[a0]++`，再分发到`sys_trace`。因此查询时计数已包含本次。若`id`超过数组长度，会越界访问到`struct proc`的其他成员（如`context`或`trapframe`），导致数据污染或崩溃。\n\n<code>\n// 系统调用入口（简化逻辑）\nvoid syscall() {\n    p->syscall_count[a0]++;  // 进入时先计数\n    sys_trace();             // 然后才执行具体逻辑\n}\n</code>\n\n如果去掉`id`边界检查，当用户传入`id=1000`（假设`MAX_SYSCALL_NUM=500`）时，`p->syscall_count[1000]`实际访问的是进程控制块中的哪个内存区域？这可能导致什么后果？",
+  "final_to_frontend": "系统调用入口会先执行`p->syscall_count[a0]++`，再分发到`sys_trace`。因此查询时计数已包含本次。若`id`超过数组长度，会越界访问到`struct proc`的其他成员（如`context`或`trapframe`），导致数据污染或崩溃。\n\n<code>\n// 系统调用入口（简化逻辑）\nvoid syscall() {\n    p->syscall_count[a0]++;  // 进入时先计数\n    sys_trace();             // 然后才执行具体逻辑\n}\n</code>\n\n如果去掉`id`边界检查，当用户传入`id=1000`（假设`MAX_SYSCALL_NUM=500`）时，`p->syscall_count[1000]`实际访问的是进程控制块中的哪个内存区域？这可能导致什么后果？"
+}

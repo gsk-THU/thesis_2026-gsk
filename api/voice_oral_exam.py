@@ -6,6 +6,7 @@
 import json
 import base64
 import asyncio
+from datetime import datetime
 from typing import List, Dict, Any
 from fastapi import WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
@@ -283,6 +284,8 @@ class VoiceOralExamSession:
                 "type": "grading_started",
                 "dialogue_preview": record["dialogue_text"][:500],
                 "evaluation_id": self.evaluation_id,
+                "status_url": f"/api/evaluation/{self.evaluation_id}",
+                "result_url": f"/api/oral-exam/{self.evaluation_id}/result",
                 "reason": reason
             })
         except ConnectionClosedError:
@@ -312,12 +315,26 @@ class OSOralExamSession(VoiceOralExamSession):
                 "type": "grading_started",
                 "dialogue_preview": "正在综合评估您的回答...",
                 "evaluation_id": self.evaluation_id,
+                "status_url": f"/api/evaluation/{self.evaluation_id}",
+                "result_url": f"/api/oral-exam/{self.evaluation_id}/result",
                 "reason": reason
             })
 
-            from server import run_council_on_qa_pairs, chairman_overall_assessment
+            from server import run_council_on_qa_pairs, chairman_overall_assessment, record_debug_event
 
             qa_pairs = self._extract_qa_pairs_from_dialogue()
+            record_debug_event(
+                "oral_os_qa_pairs_extracted",
+                evaluation_id=self.evaluation_id,
+                qa_pair_count=len(qa_pairs),
+                preview=[
+                    {
+                        "question": item.get("text", "")[:120],
+                        "answer": item.get("answer", "")[:120],
+                    }
+                    for item in qa_pairs[:3]
+                ],
+            )
             exam_scores_details = await run_council_on_qa_pairs(qa_pairs)
             eval_data = self.storage.get(self.evaluation_id)
             original_question = eval_data.get("original_question", "")
@@ -341,8 +358,11 @@ class OSOralExamSession(VoiceOralExamSession):
                 exam_results=exam_results
             )
             final_result = {
+                "evaluation_id": self.evaluation_id,
+                "status": "completed",
                 "exam_scores": [s.dict() for s in exam_scores_details],
-                "overall_assessment": overall.dict()
+                "overall_assessment": overall.dict(),
+                "generated_at": datetime.now().isoformat(),
             }
             self.storage.update(self.evaluation_id, {
                 "status": "completed",
@@ -355,7 +375,21 @@ class OSOralExamSession(VoiceOralExamSession):
                     "dialogue_text": self.examiner.compile_exam_record()["dialogue_text"]
                 }
             })
-            await self._send_json({"type": "exam_complete", "reason": reason, "result": final_result})
+            record_debug_event(
+                "oral_os_grading_completed",
+                evaluation_id=self.evaluation_id,
+                score_count=len(exam_scores_details),
+                result_url=f"/api/oral-exam/{self.evaluation_id}/result",
+                status_url=f"/api/evaluation/{self.evaluation_id}",
+            )
+            await self._send_json({
+                "type": "exam_complete",
+                "reason": reason,
+                "evaluation_id": self.evaluation_id,
+                "status_url": f"/api/evaluation/{self.evaluation_id}",
+                "result_url": f"/api/oral-exam/{self.evaluation_id}/result",
+                "result": final_result
+            })
         except ConnectionClosedError:
             self._active = False
         except Exception as e:

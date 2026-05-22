@@ -1,0 +1,68 @@
+{
+  "generated_at": "2026-05-18T15:40:10.966276",
+  "os_type": "ucore",
+  "experiment_requirement": "ch3 中，我们的系统已经能够支持多个任务分时轮流运行，我们希望引入一个新的系统调用 sys_trace （syscall ID: 410）用来追踪当前任务系统调用的历史信息、并进行任务内存的读写。定义如下：\r\n\r\nint sys_trace(int trace_request, unsigned long id, uint8_t data);\r\nsyscall ID: 410\r\n\r\n调用规范：\r\n这个系统调用有三种功能，根据 trace_request 的值不同，执行不同的操作：\r\n\r\n如果 trace_request 为 0，则 id 应被视作 uint8_t * ，表示读取当前任务 id 地址处一个字节的无符号整数值。此时应忽略 data 参数。返回值为 id 地址处的值。\r\n\r\n如果 trace_request 为 1，则 id 应被视作 uint8_t * ，表示写入 data （作为 uint8_t，即只考虑最低位的一个字节）到该用户程序 id 地址处。返回值应为0。\r\n\r\n如果 trace_request 为 2，表示查询当前任务调用编号为 id 的系统调用的次数，返回值为这个调用次数。 本次调用也计入统计 。\r\n\r\n否则，忽略其他参数，返回值为 -1。\r\n\r\n说明：\r\nuint8_t 是C语言中的标准类型，表示一个无符号的8位整数。在代码中你可能需要使用 uint8 替代。\r\n\r\n你可能会注意到，这个调用的读写并不安全，使用不当可能导致崩溃。这是因为在下一章节实现地址空间之前，系统中缺乏隔离机制。所以我们 不要求你实现安全检查机制，只需通过测试用例即可 。\r\n\r\n你还可能注意到，这个系统调用读写本任务内存的功能并不是很有用。这是因为作业的灵感来源 syscall 主要依靠 trace 功能追踪其他任务的信息，但在本章节我们还没有进程、线程等概念，所以简化了操作，只要求追踪自身的信息。",
+  "experiment_title": "ch3 中，我们的系统已经能够支持多个任务分时轮流运行，我们希望引入一个新的系统调用 sys_tra...",
+  "summary": "基于1个修改文件和0个新增文件生成1个问题（OS类型: ucore, RAG检索: 4次）",
+  "total_questions": 1,
+  "questions": [
+    {
+      "id": 1,
+      "category": "implementation + concept",
+      "question": "请看以下 `sys_trace` 中处理 trace_request 为 2 的代码片段：\n\n\n\n根据实验要求，当 trace_request 为 2 时，**本次调用也计入统计**。这意味着返回的计数应该包含当前这次 `sys_trace` 调用本身。\n\n1. 请分析 `syscall_count` 数组应该在何时被更新（是在进入 `sys_trace` 之前还是之后），才能满足\"本次调用也计入统计\"的要求？\n2. 如果在 `sys_trace` 函数返回后才去更新 `syscall_count[410]`，会导致什么逻辑错误？\n3. 结合课程知识库中提到的系统调用处理机制，说明在 uCore 中通常如何维护每个进程的系统调用计数。",
+      "rationale": "考察学生对系统调用处理流程的理解，特别是系统调用计数的时机问题。这是一个典型的\"原子性\"或\"时序\"问题，需要学生理解内核态下系统调用分发的完整流程，而不仅仅是实现功能。能够区分\"进入处理函数前计数\"和\"退出后计数\"对正确实现统计功能至关重要。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "case 2:\n\t\t/* 查询当前任务调用编号为 id 的系统调用次数 */\n\t\tif (id < MAX_SYSCALL_NUM)\n\t\t\treturn p->syscall_count[id];\n\t\telse\n\t\t\treturn 0;"
+      ]
+    }
+  ],
+  "diff_summary": {
+    "added_files": [],
+    "deleted_files": [],
+    "modified_files": [
+      "os/syscall.c"
+    ],
+    "summary": "新增文件: 0个\n删除文件: 0个\n修改文件: 1个\n未变文件: 30个\n\n主要修改:\n  - os/syscall.c (变更行: 29行)"
+  },
+  "metadata": {
+    "diff_summary": "新增文件: 0个\n删除文件: 0个\n修改文件: 1个\n未变文件: 30个\n\n主要修改:\n  - os/syscall.c (变更行: 29行)",
+    "total_files": 62,
+    "raw_response": "## 问题1 [implementation + concept]\n\n请看以下 `sys_trace` 中处理 trace_request 为 2 的代码片段：\n\n<code>\n\tcase 2:\n\t\t/* 查询当前任务调用编号为 id 的系统调用次数 */\n\t\tif (id < MAX_SYSCALL_NUM)\n\t\t\treturn p->syscall_count[id];\n\t\telse\n\t\t\treturn 0;\n</code>\n\n根据实验要求，当 trace_request 为 2 时，**本次调用也计入统计**。这意味着返回的计数应该包含当前这次 `sys_trace` 调用本身。\n\n1. 请分析 `syscall_count` 数组应该在何时被更新（是在进入 `sys_trace` 之前还是之后），才能满足\"本次调用也计入统计\"的要求？\n2. 如果在 `sys_trace` 函数返回后才去更新 `syscall_count[410]`，会导致什么逻辑错误？\n3. 结合课程知识库中提到的系统调用处理机制，说明在 uCore 中通常如何维护每个进程的系统调用计数。\n\n**出题理由**: 考察学生对系统调用处理流程的理解，特别是系统调用计数的时机问题。这是一个典型的\"原子性\"或\"时序\"问题，需要学生理解内核态下系统调用分发的完整流程，而不仅仅是实现功能。能够区分\"进入处理函数前计数\"和\"退出后计数\"对正确实现统计功能至关重要。\n\n---\n\n## 问题2 [debugging + understanding]\n\n请看以下 `sys_trace` 中处理内存读写的代码片段：\n\n<code>\n\tcase 0:\n\t\t/* 读取当前任务 id 地址处一个字节 */\n\t\treturn *(uint8_t *)id;\n\tcase 1:\n\t\t/* 写入 data 的最低位字节到 id 地址处 */\n\t\t*(uint8_t *)id = data;\n\t\treturn 0;\n</code>\n\n这两段代码直接将用户传入的 `id` 参数强制转换为指针并进行解引用操作。\n\n1. 在 ch3 的架构中（尚未实现地址空间隔离），如果用户程序恶意传入一个指向**内核空间地址**（如 `0x80000000` 以上）或**其他任务内存**的 `id` 值，内核会面临什么风险？\n2. 实验要求中提到\"在下一章节实现地址空间之前，系统中缺乏隔离机制\"，结合课程知识库中关于\"用户态和内核态\"的内容，说明为什么在 ch3 可以暂时不做安全检查，而在后续章节（如 ch4 实现地址空间后）这种直接解引用用户指针的方式会变得不可接受？\n3. 在后续章节引入地址空间隔离后，如果要安全地访问用户态地址 `id`，内核需要采取什么机制（提示：涉及页表和地址转换）？\n\n**出题理由**: 考察学生对内核态内存访问安全性的理解，以及对操作系统发展历程（从无隔离到有隔离）的认识。问题区分了\"功能实现\"和\"安全保障\"两个层面，要求学生理解为什么实验允许暂时跳过安全检查，以及这种设计在真实系统中的局限性。同时也为后续章节（地址空间、页表）埋下伏笔。",
+    "context_length": 10503,
+    "use_kimi": true,
+    "os_type": "ucore",
+    "rag_enabled": true,
+    "rag_tool_calls": [
+      {
+        "tool": "search_by_lab",
+        "arguments": {
+          "lab_name": "ch3"
+        }
+      },
+      {
+        "tool": "search_os_concept",
+        "arguments": {
+          "concept": "系统调用",
+          "detail_level": "detailed"
+        }
+      },
+      {
+        "tool": "search_by_code_symbol",
+        "arguments": {
+          "symbol_name": "curr_proc",
+          "context": "获取当前运行任务"
+        }
+      },
+      {
+        "tool": "search_os_concept",
+        "arguments": {
+          "concept": "用户态和内核态",
+          "detail_level": "standard"
+        }
+      }
+    ],
+    "rag_results_length": 8631
+  }
+}

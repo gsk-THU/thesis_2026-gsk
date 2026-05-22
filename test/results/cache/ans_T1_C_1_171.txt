@@ -1,0 +1,3 @@
+对于新创建的任务，`ra`寄存器应该指向`trap_return`函数（或者是`trap_handler_return`类似的入口）。这是在`TaskControlBlock::new`或者`spawn`创建任务的时候，在初始化`TaskContext`结构体时设置的。
+
+因为新任务从来没执行过，第一次被调度不能直接返回，需要通过`trap_return`来恢复用户态的寄存器环境，然后执行`sret`指令跳转到用户程序入口。所以创建时就把`ra`初始化成`trap_return`的地址，这样`__switch`恢复上下文后，就会跳转到那里执行，完成从内核态到用户态的切换。

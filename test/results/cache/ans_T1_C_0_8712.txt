@@ -1,0 +1,1 @@
+这是RISC-V的ABI调用约定规定的。callee-saved寄存器像s0-s11是要求被调用函数保存的，而caller-saved寄存器是调用者负责保存。__switch函数作为被调用的函数，只需要保存callee-saved寄存器。那些caller-saved寄存器在调用__switch的时候，编译器已经自动保存在栈里面了。所以__switch只需要处理s0-s11和ra、sp这些，不用管a0-a7和t0-t6。

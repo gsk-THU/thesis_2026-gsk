@@ -1,0 +1,9 @@
+{
+  "exam_id": "exam_1_083252",
+  "turn_idx": 6,
+  "role": "examiner",
+  "mode": "os_next_topic",
+  "timestamp": "20260528_083754",
+  "raw_llm_output": "好的，我们看下一个问题： 代码中通过 `curr_proc()` 获取当前任务控制块以访问 `syscall_count` 数组。结合课程知识库中 `struct proc` 的定义：\n\n请说明 `curr_proc()` 的实现原理（提示：与 `scheduler` 函数和 `struct proc` 数组的关系），并解释为什么在多任务切换的场景下，该方法总能正确获取到\"正在执行当前系统调用\"的那个任务控制块，而不会混淆不同任务的统计计数。  <code>// os/proc.h\nstruct proc {\n    enum procstate state;   // 进程状态\n    int pid;                // 进程ID\n    uint64 ustack;          // 进程用户栈虚拟地址(用户页表)\n    uint64 kstack;          // 进程内核栈虚拟地址(内核页表)\n    struct trapframe *trapframe;   // 进程中断帧\n    struct context context; // 用于保存进程内核态的寄存器信息，进程切换时使用\n    // ... 可能包含 syscall_count 数组\n};</code>",
+  "final_to_frontend": "好的，我们看下一个问题： 代码中通过 `curr_proc()` 获取当前任务控制块以访问 `syscall_count` 数组。结合课程知识库中 `struct proc` 的定义：\n\n请说明 `curr_proc()` 的实现原理（提示：与 `scheduler` 函数和 `struct proc` 数组的关系），并解释为什么在多任务切换的场景下，该方法总能正确获取到\"正在执行当前系统调用\"的那个任务控制块，而不会混淆不同任务的统计计数。  <code>// os/proc.h\nstruct proc {\n    enum procstate state;   // 进程状态\n    int pid;                // 进程ID\n    uint64 ustack;          // 进程用户栈虚拟地址(用户页表)\n    uint64 kstack;          // 进程内核栈虚拟地址(内核页表)\n    struct trapframe *trapframe;   // 进程中断帧\n    struct context context; // 用于保存进程内核态的寄存器信息，进程切换时使用\n    // ... 可能包含 syscall_count 数组\n};</code>"
+}

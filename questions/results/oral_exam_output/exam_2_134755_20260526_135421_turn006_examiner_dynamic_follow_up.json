@@ -1,0 +1,9 @@
+{
+  "exam_id": "exam_2_134755",
+  "turn_idx": 6,
+  "role": "examiner",
+  "mode": "dynamic_follow_up",
+  "timestamp": "20260526_135421",
+  "raw_llm_output": "其实两种都是O(n×m)复杂度，延后处理只多了O(n+m)的进位扫描，可忽略。反而立即处理的常数因子可能更大。\n\n<code>\n# 延后处理时，result[k]可能累积到多大？\n# 如果num1、num2都是n位全9，result[k]最大约81*n\n</code>\n\n考虑数值范围：延后处理时单个位置可能累积到8100（n=100时），这会占用更多内存吗？在Python里没问题，但如果在C语言用固定类型数组会怎样？",
+  "final_to_frontend": "其实两种都是O(n×m)复杂度，延后处理只多了O(n+m)的进位扫描，可忽略。反而立即处理的常数因子可能更大。\n\n<code>\n# 延后处理时，result[k]可能累积到多大？\n# 如果num1、num2都是n位全9，result[k]最大约81*n\n</code>\n\n考虑数值范围：延后处理时单个位置可能累积到8100（n=100时），这会占用更多内存吗？在Python里没问题，但如果在C语言用固定类型数组会怎样？"
+}

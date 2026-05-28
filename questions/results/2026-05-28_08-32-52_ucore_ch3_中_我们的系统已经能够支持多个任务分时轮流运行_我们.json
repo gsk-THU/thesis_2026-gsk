@@ -1,0 +1,101 @@
+{
+  "generated_at": "2026-05-28T08:32:52.673225",
+  "os_type": "ucore",
+  "experiment_requirement": "ch3 中，我们的系统已经能够支持多个任务分时轮流运行，我们希望引入一个新的系统调用 sys_trace （syscall ID: 410）用来追踪当前任务系统调用的历史信息、并进行任务内存的读写。定义如下：\r\n\r\nint sys_trace(int trace_request, unsigned long id, uint8_t data);\r\nsyscall ID: 410\r\n\r\n调用规范：\r\n这个系统调用有三种功能，根据 trace_request 的值不同，执行不同的操作：\r\n\r\n如果 trace_request 为 0，则 id 应被视作 uint8_t * ，表示读取当前任务 id 地址处一个字节的无符号整数值。此时应忽略 data 参数。返回值为 id 地址处的值。\r\n\r\n如果 trace_request 为 1，则 id 应被视作 uint8_t * ，表示写入 data （作为 uint8_t，即只考虑最低位的一个字节）到该用户程序 id 地址处。返回值应为0。\r\n\r\n如果 trace_request 为 2，表示查询当前任务调用编号为 id 的系统调用的次数，返回值为这个调用次数。 本次调用也计入统计 。\r\n\r\n否则，忽略其他参数，返回值为 -1。\r\n\r\n说明：\r\nuint8_t 是C语言中的标准类型，表示一个无符号的8位整数。在代码中你可能需要使用 uint8 替代。\r\n\r\n你可能会注意到，这个调用的读写并不安全，使用不当可能导致崩溃。这是因为在下一章节实现地址空间之前，系统中缺乏隔离机制。所以我们 不要求你实现安全检查机制，只需通过测试用例即可 。\r\n\r\n你还可能注意到，这个系统调用读写本任务内存的功能并不是很有用。这是因为作业的灵感来源 syscall 主要依靠 trace 功能追踪其他任务的信息，但在本章节我们还没有进程、线程等概念，所以简化了操作，只要求追踪自身的信息。",
+  "experiment_title": "ch3 中，我们的系统已经能够支持多个任务分时轮流运行，我们希望引入一个新的系统调用 sys_tra...",
+  "summary": "基于1个修改文件和0个新增文件生成4个问题（OS类型: ucore, RAG检索: 4次）",
+  "total_questions": 4,
+  "questions": [
+    {
+      "id": 1,
+      "category": "implementation",
+      "question": "在 `sys_trace` 的实现中，你使用 `(uint8_t *)id` 直接对用户提供的地址进行解引用读写。请看以下代码片段：\n\n\n\n在 ch3 的实验背景下（尚未实现地址空间隔离），这种直接解引用用户态指针的方式为何能够工作？请从\"内核与用户态共享地址空间\"的角度解释其原理，并说明在后续章节引入地址空间隔离后，这种实现方式需要做出什么改变？",
+      "rationale": "考察学生对 ch3 内存模型（无地址空间隔离）的理解，以及对后续章节虚拟内存/地址空间概念的预判，区分\"能工作\"和\"正确/安全\"的概念差异。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "case 0:\n    /* 读取当前任务 id 地址处一个字节 */\n    return *(uint8_t *)id;\ncase 1:\n    /* 写入 data 的最低位字节到 id 地址处 */\n    *(uint8_t *)id = data;"
+      ]
+    },
+    {
+      "id": 2,
+      "category": "concept",
+      "question": "关于系统调用次数统计功能，实验要求明确说明\"本次调用也计入统计\"。观察你的代码实现：\n\n\n\n请分析系统调用的完整处理流程：当执行到 `sys_trace` 函数内部时，`p->syscall_count[SYS_TRACE]`（假设 SYS_TRACE 为 410）的计数是否已经被加 1？如果是，请说明是在哪个环节完成的；如果否，请解释为何实验要求声称\"本次调用也计入统计\"仍能满足。这涉及到系统调用入口处理机制的理解。",
+      "rationale": "检验学生对系统调用处理流程（trap 入口、syscall 分发、具体实现）的整体把握，特别是统计计数更新的时机问题。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "case 2:\n    /* 查询当前任务调用编号为 id 的系统调用次数 */\n    if (id < MAX_SYSCALL_NUM)\n        return p->syscall_count[id];\n    else\n        return 0;"
+      ]
+    },
+    {
+      "id": 3,
+      "category": "debugging",
+      "question": "在你的实现中，`case 0` 和 `case 1` 没有对用户传入的 `id` 参数进行任何地址合法性检查：\n\n\n\n如果恶意或错误的用户程序传入 `id = 0x0`（空指针）或传入一个超出应用内存范围的内核地址，分析内核可能发生什么后果？为什么在实验要求中明确指出\"不要求你实现安全检查机制\"？请结合课程知识库中关于 ch3 阶段系统特性的描述回答。",
+      "rationale": "考察学生对操作系统安全边界的认识，以及对实验阶段性限制（ch3 无隔离机制）的理解，区分工程妥协与设计缺陷。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "uint64 sys_trace(int trace_request, unsigned long id, uint8_t data)\n{\n    struct proc *p = curr_proc();\n    switch (trace_request) {\n    case 0:\n        return *(uint8_t *)id;  // 直接解引用，未检查 id 是否为合法地址\n    case 1:\n        *(uint8_t *)id = data;  // 直接写入，未检查地址范围\n        return 0;"
+      ]
+    },
+    {
+      "id": 4,
+      "category": "understanding",
+      "question": "代码中通过 `curr_proc()` 获取当前任务控制块以访问 `syscall_count` 数组。结合课程知识库中 `struct proc` 的定义：\n\n\n\n请说明 `curr_proc()` 的实现原理（提示：与 `scheduler` 函数和 `struct proc` 数组的关系），并解释为什么在多任务切换的场景下，该方法总能正确获取到\"正在执行当前系统调用\"的那个任务控制块，而不会混淆不同任务的统计计数。",
+      "rationale": "结合课程知识库中进程管理的内容，考察学生对\"当前任务\"这一概念在单核分时多任务系统中的实现机制的理解。",
+      "target_file": null,
+      "target_lines": null,
+      "code_snippets": [
+        "// os/proc.h\nstruct proc {\n    enum procstate state;   // 进程状态\n    int pid;                // 进程ID\n    uint64 ustack;          // 进程用户栈虚拟地址(用户页表)\n    uint64 kstack;          // 进程内核栈虚拟地址(内核页表)\n    struct trapframe *trapframe;   // 进程中断帧\n    struct context context; // 用于保存进程内核态的寄存器信息，进程切换时使用\n    // ... 可能包含 syscall_count 数组\n};"
+      ]
+    }
+  ],
+  "diff_summary": {
+    "added_files": [],
+    "deleted_files": [],
+    "modified_files": [
+      "os/syscall.c"
+    ],
+    "summary": "新增文件: 0个\n删除文件: 0个\n修改文件: 1个\n未变文件: 30个\n\n主要修改:\n  - os/syscall.c (变更行: 29行)"
+  },
+  "metadata": {
+    "diff_summary": "新增文件: 0个\n删除文件: 0个\n修改文件: 1个\n未变文件: 30个\n\n主要修改:\n  - os/syscall.c (变更行: 29行)",
+    "total_files": 62,
+    "raw_response": "## 问题1 [implementation]\n在 `sys_trace` 的实现中，你使用 `(uint8_t *)id` 直接对用户提供的地址进行解引用读写。请看以下代码片段：\n\n<code>\ncase 0:\n    /* 读取当前任务 id 地址处一个字节 */\n    return *(uint8_t *)id;\ncase 1:\n    /* 写入 data 的最低位字节到 id 地址处 */\n    *(uint8_t *)id = data;\n</code>\n\n在 ch3 的实验背景下（尚未实现地址空间隔离），这种直接解引用用户态指针的方式为何能够工作？请从\"内核与用户态共享地址空间\"的角度解释其原理，并说明在后续章节引入地址空间隔离后，这种实现方式需要做出什么改变？\n\n**出题理由**: 考察学生对 ch3 内存模型（无地址空间隔离）的理解，以及对后续章节虚拟内存/地址空间概念的预判，区分\"能工作\"和\"正确/安全\"的概念差异。\n\n---\n\n## 问题2 [concept]\n关于系统调用次数统计功能，实验要求明确说明\"本次调用也计入统计\"。观察你的代码实现：\n\n<code>\ncase 2:\n    /* 查询当前任务调用编号为 id 的系统调用次数 */\n    if (id < MAX_SYSCALL_NUM)\n        return p->syscall_count[id];\n    else\n        return 0;\n</code>\n\n请分析系统调用的完整处理流程：当执行到 `sys_trace` 函数内部时，`p->syscall_count[SYS_TRACE]`（假设 SYS_TRACE 为 410）的计数是否已经被加 1？如果是，请说明是在哪个环节完成的；如果否，请解释为何实验要求声称\"本次调用也计入统计\"仍能满足。这涉及到系统调用入口处理机制的理解。\n\n**出题理由**: 检验学生对系统调用处理流程（trap 入口、syscall 分发、具体实现）的整体把握，特别是统计计数更新的时机问题。\n\n---\n\n## 问题3 [debugging]\n在你的实现中，`case 0` 和 `case 1` 没有对用户传入的 `id` 参数进行任何地址合法性检查：\n\n<code>\nuint64 sys_trace(int trace_request, unsigned long id, uint8_t data)\n{\n    struct proc *p = curr_proc();\n    switch (trace_request) {\n    case 0:\n        return *(uint8_t *)id;  // 直接解引用，未检查 id 是否为合法地址\n    case 1:\n        *(uint8_t *)id = data;  // 直接写入，未检查地址范围\n        return 0;\n</code>\n\n如果恶意或错误的用户程序传入 `id = 0x0`（空指针）或传入一个超出应用内存范围的内核地址，分析内核可能发生什么后果？为什么在实验要求中明确指出\"不要求你实现安全检查机制\"？请结合课程知识库中关于 ch3 阶段系统特性的描述回答。\n\n**出题理由**: 考察学生对操作系统安全边界的认识，以及对实验阶段性限制（ch3 无隔离机制）的理解，区分工程妥协与设计缺陷。\n\n---\n\n## 问题4 [understanding]\n代码中通过 `curr_proc()` 获取当前任务控制块以访问 `syscall_count` 数组。结合课程知识库中 `struct proc` 的定义：\n\n<code>\n// os/proc.h\nstruct proc {\n    enum procstate state;   // 进程状态\n    int pid;                // 进程ID\n    uint64 ustack;          // 进程用户栈虚拟地址(用户页表)\n    uint64 kstack;          // 进程内核栈虚拟地址(内核页表)\n    struct trapframe *trapframe;   // 进程中断帧\n    struct context context; // 用于保存进程内核态的寄存器信息，进程切换时使用\n    // ... 可能包含 syscall_count 数组\n};\n</code>\n\n请说明 `curr_proc()` 的实现原理（提示：与 `scheduler` 函数和 `struct proc` 数组的关系），并解释为什么在多任务切换的场景下，该方法总能正确获取到\"正在执行当前系统调用\"的那个任务控制块，而不会混淆不同任务的统计计数。\n\n**出题理由**: 结合课程知识库中进程管理的内容，考察学生对\"当前任务\"这一概念在单核分时多任务系统中的实现机制的理解。\n\n---\n\n## 问题5 [implementation]\n观察你的函数签名和返回值处理：\n\n<code>\nuint64 sys_trace(int trace_request, unsigned long id, uint8_t data)\n{\n    // ...\n    default:\n        return -1;  // 返回 -1 表示错误\n}\n</code>\n\n实验要求规定：当 `trace_request` 为非法值时，返回值为 -1。然而你的函数返回类型是 `uint64`（无符号 64 位整数）。在 RISC-V 64 位系统中，`return -1` 实际会被转换成什么数值？如果用户态程序期望按照 C 语言的有符号整数语义来判断错误（即判断返回值是否为 -1），这种实现是否会导致问题？请说明理由，并给出正确的处理方式。\n\n**出题理由**: 考察学生对 C 语言类型转换规则、系统调用返回值约定（错误码表示）以及 RISC-V ABI 的理解，属于细节但关键的实现问题。",
+    "context_length": 9531,
+    "use_kimi": true,
+    "os_type": "ucore",
+    "rag_enabled": true,
+    "rag_tool_calls": [
+      {
+        "tool": "search_by_lab",
+        "arguments": {
+          "lab_name": "ch3"
+        }
+      },
+      {
+        "tool": "search_by_code_symbol",
+        "arguments": {
+          "symbol_name": "curr_proc",
+          "context": "获取当前任务/进程"
+        }
+      },
+      {
+        "tool": "search_by_code_symbol",
+        "arguments": {
+          "symbol_name": "struct proc",
+          "context": "任务控制块"
+        }
+      },
+      {
+        "tool": "search_os_concept",
+        "arguments": {
+          "concept": "系统调用",
+          "detail_level": "standard"
+        }
+      }
+    ],
+    "rag_results_length": 7659
+  }
+}

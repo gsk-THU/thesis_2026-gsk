@@ -1,0 +1,47 @@
+{
+  "total_samples": 6,
+  "end_to_end_ms": {
+    "mean": 12108.52,
+    "median": 9676.69,
+    "std": 7955.69,
+    "min": 2110.53,
+    "max": 23511.81,
+    "q25": 8307.18,
+    "q75": 17287.71
+  },
+  "stage_breakdown": [
+    {
+      "stage": "ASR Recognition",
+      "mean_ms": 464.16,
+      "median_ms": 449.64,
+      "std_ms": 289.12,
+      "percentage": 3.8
+    },
+    {
+      "stage": "LLM Generation",
+      "mean_ms": 4385.45,
+      "median_ms": 0.62,
+      "std_ms": 6807.26,
+      "percentage": 36.2
+    },
+    {
+      "stage": "TTS Synthesis",
+      "mean_ms": 2379.43,
+      "median_ms": 1953.35,
+      "std_ms": 1327.11,
+      "percentage": 19.7
+    },
+    {
+      "stage": "Other (Gap)",
+      "mean_ms": 4879.48,
+      "median_ms": 5345.15,
+      "std_ms": 2580.9,
+      "percentage": 40.3
+    }
+  ],
+  "bottleneck_analysis": {
+    "primary_bottleneck": "Other (Gap) (40.3%)",
+    "secondary_bottleneck": "LLM Generation (36.2%)",
+    "combined_percentage": 76.5
+  }
+}

@@ -825,52 +825,57 @@ const OralExamination: React.FC<{ osOnly?: boolean }> = ({ osOnly = false }) => 
   }, [clearAutoStopTimer]);
 
   const startRecording = useCallback(async () => {
-    const inited = await initAudioContext();
-    if (!inited) return;
+      const inited = await initAudioContext();
+      if (!inited) return;
 
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true },
-      });
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
+      try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+              audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true },
+          });
+          const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+          mediaRecorderRef.current = mediaRecorder;
+          audioChunksRef.current = [];
 
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-
-      mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const base64 = (reader.result as string).split(',')[1];
-            wsRef.current?.send(JSON.stringify({ type: 'audio_data', data: base64 }));
-            setIsProcessing(true);
-            setCurrentHint('识别中...');
-            startSilenceTimer();
+          mediaRecorder.ondataavailable = (e) => {
+              if (e.data.size > 0) audioChunksRef.current.push(e.data);
           };
-          reader.readAsDataURL(audioBlob);
-        }
-        stream.getTracks().forEach((track) => track.stop());
-        stopRecordingTimer();
-        clearAutoStopTimer();
-      };
 
-      mediaRecorder.start(100);
-      setIsRecording(true);
-      stopSilenceTimer();
-      startRecordingTimer();
+          mediaRecorder.onstop = () => {
+              const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+              if (wsRef.current?.readyState === WebSocket.OPEN) {
+                  const reader = new FileReader();
+                  reader.onloadend = () => {
+                      const base64 = (reader.result as string).split(',')[1];
+                      // 新增：附带客户端时间戳，用于端到端延迟测量
+                      wsRef.current?.send(JSON.stringify({
+                          type: 'audio_data',
+                          data: base64,
+                          client_timestamp: Date.now()
+                      }));
+                      setIsProcessing(true);
+                      setCurrentHint('识别中...');
+                      startSilenceTimer();
+                  };
+                  reader.readAsDataURL(audioBlob);
+              }
+              stream.getTracks().forEach((track) => track.stop());
+              stopRecordingTimer();
+              clearAutoStopTimer();
+          };
 
-      autoStopTimerRef.current = setTimeout(() => {
-        if (mediaRecorderRef.current?.state === 'recording') {
-          stopRecording();
-        }
-      }, 30000);
-    } catch (err) {
-      alert('无法访问麦克风，请检查权限设置');
-    }
+          mediaRecorder.start(100);
+          setIsRecording(true);
+          stopSilenceTimer();
+          startRecordingTimer();
+
+          autoStopTimerRef.current = setTimeout(() => {
+              if (mediaRecorderRef.current?.state === 'recording') {
+                  stopRecording();
+              }
+          }, 30000);
+      } catch (err) {
+          alert('无法访问麦克风，请检查权限设置');
+      }
   }, [initAudioContext, stopSilenceTimer, startRecordingTimer, clearAutoStopTimer, stopRecording]);
 
   const toggleRecording = useCallback(async () => {

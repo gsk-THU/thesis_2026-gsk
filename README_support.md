@@ -16,6 +16,11 @@ export MOONSHOT_API_KEY="your_api_key"
 /questions/os_proposer.py
 /questions/question_proposer.py
 /test/exp2_scoring_discrimination.py
+## ChromaDB配置
+```
+python /chroma/build.py
+```
+把用于构建chromadb的文档放在某一路径下并修改build.py中的配置，对于操作系统课程实验，拉取官方文档的仓库到本地即可。chromadb的构建和查询代码均在/chroma/*.py下。
 ## ASR配置
 ```
 export TENCENT_SECRET_ID="your_secret_id"
